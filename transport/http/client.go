@@ -66,35 +66,35 @@ func New(c *HttpConfig) *Client {
 }
 
 //Get send a get request, returns a usable response .
-func (client *Client) Get(c context.Context, url string, header map[string]string, res interface{}) (err error) {
+func (client *Client) Get(ctx context.Context, url string, header map[string]string, res interface{}) (err error) {
 	req, err := newRequest(xhttp.MethodGet, url, header)
 	if err != nil {
 		log.Fatalf("newRequest error(%v)", err)
 		return
 	}
-	return client.Do(c, req, res)
+	return client.Do(ctx, req, res)
 }
 
 //Post send a post request, returns a usable response .
-func (client *Client) Post(c context.Context, url string, header map[string]string, res interface{}) (err error) {
+func (client *Client) Post(ctx context.Context, url string, header map[string]string, res interface{}) (err error) {
 	req, err := newRequest(xhttp.MethodPost, url, header)
 	if err != nil {
 		log.Fatalf("newRequest error(%v)", err)
 		return
 	}
-	return client.Do(c, req, res)
+	return client.Do(ctx, req, res)
 }
 
 // Do send an http request and retun an http response .
-func (client *Client) Do(c context.Context, req *xhttp.Request, res interface{}) (err error) {
+func (client *Client) Do(ctx context.Context, req *xhttp.Request, res interface{}) (err error) {
 	var (
 		resp   *xhttp.Response
 		bs     []byte
 		cancel func()
 	)
-	c, cancel = context.WithTimeout(c, client.conf.Timeout)
+	ctx, cancel = context.WithTimeout(ctx, client.conf.Timeout)
 	defer cancel()
-	req = req.WithContext(c)
+	req = req.WithContext(ctx)
 	if resp, err = client.client.Do(req); err != nil {
 		log.Fatalf("http client.Do error (%v)", err)
 		return
