@@ -110,7 +110,7 @@ func (client *Client) Do(c context.Context, req *xhttp.Request, res interface{})
 	}
 	if res != nil {
 		if err = json.Unmarshal(bs, res); err != nil {
-			log.Fatalf("json.Unmarshal ")
+			log.Fatalf("json.Unmarshal error (%v)", err)
 		}
 	}
 	return
@@ -124,7 +124,7 @@ func newRequest(method, url string, header map[string]string) (req *xhttp.Reques
 		req, err = xhttp.NewRequest(xhttp.MethodPost, url, strings.NewReader(url))
 	}
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("xhttp.NewRequest error (%v)")
 		return
 	}
 	for k, v := range header {
