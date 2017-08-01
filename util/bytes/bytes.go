@@ -6,10 +6,7 @@ import (
 	"strconv"
 )
 
-type (
-	Bytes struct {
-	}
-)
+type Bytes struct{}
 
 const (
 	B = 1 << (10 * iota)
