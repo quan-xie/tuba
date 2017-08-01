@@ -8,8 +8,9 @@ import (
 	"io"
 	"log"
 	"net"
-	"net/http"
+	xhttp "net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,32 +39,49 @@ type HttpConfig struct {
 type Client struct {
 	conf      *HttpConfig
 	dialer    *net.Dialer
-	transport *http.Transport
-	client    *http.Client
+	transport *xhttp.Transport
+	client    *xhttp.Client
+	mutex     sync.RWMutex
 }
 
 // New returns a new initialized Http Client.
 func New(c *HttpConfig) *Client {
-	client := &Client{
-		conf: c,
-		transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   time.Duration(c.Dial),
-				KeepAlive: time.Duration(c.KeepAlive),
-			}).DialContext,
-			TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
-			MaxIdleConns:        c.MaxIdleConns,
-			MaxIdleConnsPerHost: c.MaxIdleConnsPerHost,
-			IdleConnTimeout:     c.IdleConnTimeout,
-		},
+	//client := &Client{
+	//	conf: c,
+	//	transport: &xhttp.Transport{
+	//		Proxy: xhttp.ProxyFromEnvironment,
+	//		DialContext: (&net.Dialer{
+	//			Timeout:   time.Duration(c.Dial),
+	//			KeepAlive: time.Duration(c.KeepAlive),
+	//		}).DialContext,
+	//		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+	//		MaxIdleConns:        c.MaxIdleConns,
+	//		MaxIdleConnsPerHost: c.MaxIdleConnsPerHost,
+	//		IdleConnTimeout:     c.IdleConnTimeout,
+	//	},
+	//}
+	client := new(Client)
+	client.conf = c
+	client.dialer = &net.Dialer{
+		Timeout:   time.Duration(c.Dial),
+		KeepAlive: time.Duration(c.KeepAlive),
+	}
+	client.transport = &xhttp.Transport{
+		DialContext:         client.dialer.DialContext,
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+		MaxIdleConns:        c.MaxIdleConns,
+		MaxIdleConnsPerHost: c.MaxIdleConnsPerHost,
+		IdleConnTimeout:     c.IdleConnTimeout,
+	}
+	client.client = &xhttp.Client{
+		Transport: client.transport,
 	}
 	return client
 }
 
 //Get send a get request, returns a usable response .
 func (client *Client) Get(c context.Context, url string, header map[string]string, res interface{}) (err error) {
-	req, err := newRequest(http.MethodGet, url, header)
+	req, err := newRequest(xhttp.MethodGet, url, header)
 	if err != nil {
 		log.Fatalf("newRequest error(%v)", err)
 		return
@@ -73,7 +91,7 @@ func (client *Client) Get(c context.Context, url string, header map[string]strin
 
 //Post send a post request, returns a usable response .
 func (client *Client) Post(c context.Context, url string, header map[string]string, res interface{}) (err error) {
-	req, err := newRequest(http.MethodPost, url, header)
+	req, err := newRequest(xhttp.MethodPost, url, header)
 	if err != nil {
 		log.Fatalf("newRequest error(%v)", err)
 		return
@@ -82,9 +100,9 @@ func (client *Client) Post(c context.Context, url string, header map[string]stri
 }
 
 // Do send an http request and retun an http response .
-func (client *Client) Do(c context.Context, req *http.Request, res interface{}) (err error) {
+func (client *Client) Do(c context.Context, req *xhttp.Request, res interface{}) (err error) {
 	var (
-		resp   *http.Response
+		resp   *xhttp.Response
 		bs     []byte
 		cancel func()
 	)
@@ -92,11 +110,11 @@ func (client *Client) Do(c context.Context, req *http.Request, res interface{}) 
 	defer cancel()
 	req = req.WithContext(c)
 	if resp, err = client.client.Do(req); err != nil {
-		log.Fatal(err)
+		log.Fatalf("http client.Do error (%v)", err)
 		return
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= http.StatusBadRequest {
+	if resp.StatusCode >= xhttp.StatusBadRequest {
 		log.Fatalf("response status code error (%v)", err)
 		return
 	}
@@ -113,11 +131,11 @@ func (client *Client) Do(c context.Context, req *http.Request, res interface{}) 
 }
 
 // newRequest new http request with method, url, and header.
-func newRequest(method, url string, header map[string]string) (req *http.Request, err error) {
-	if method == http.MethodGet {
-		req, err = http.NewRequest(http.MethodGet, url, nil)
+func newRequest(method, url string, header map[string]string) (req *xhttp.Request, err error) {
+	if method == xhttp.MethodGet {
+		req, err = xhttp.NewRequest(xhttp.MethodGet, url, nil)
 	} else {
-		req, err = http.NewRequest(http.MethodPost, url, strings.NewReader(url))
+		req, err = xhttp.NewRequest(xhttp.MethodPost, url, strings.NewReader(url))
 	}
 	if err != nil {
 		log.Fatal(err)
