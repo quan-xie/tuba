@@ -8,6 +8,7 @@ import (
 
 var (
 	httpConfig *HttpConfig
+	err error
 )
 
 func init() {
@@ -23,9 +24,6 @@ func init() {
 
 // go test  -v -test.run TestGet
 func TestGet(t *testing.T) {
-	var (
-		err error
-	)
 	client := New(httpConfig)
 	var res interface{}
 	header := make(map[string]string)
@@ -41,9 +39,6 @@ func TestGet(t *testing.T) {
 
 // go test -v -test.run TestPost
 func TestPost(t *testing.T) {
-	var (
-		err error
-	)
 	client := New(httpConfig)
 	var res interface{}
 	header := make(map[string]string)

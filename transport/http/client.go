@@ -46,20 +46,6 @@ type Client struct {
 
 // New returns a new initialized Http Client.
 func New(c *HttpConfig) *Client {
-	//client := &Client{
-	//	conf: c,
-	//	transport: &xhttp.Transport{
-	//		Proxy: xhttp.ProxyFromEnvironment,
-	//		DialContext: (&net.Dialer{
-	//			Timeout:   time.Duration(c.Dial),
-	//			KeepAlive: time.Duration(c.KeepAlive),
-	//		}).DialContext,
-	//		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
-	//		MaxIdleConns:        c.MaxIdleConns,
-	//		MaxIdleConnsPerHost: c.MaxIdleConnsPerHost,
-	//		IdleConnTimeout:     c.IdleConnTimeout,
-	//	},
-	//}
 	client := new(Client)
 	client.conf = c
 	client.dialer = &net.Dialer{
