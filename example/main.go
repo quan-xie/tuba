@@ -5,7 +5,7 @@ import (
 
 	"github.com/quan-xie/tuba"
 )
-git
+
 func main() {
 	r := tuba.NewRouter()
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
