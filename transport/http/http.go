@@ -7,12 +7,14 @@ import (
 	"time"
 )
 
+// ClientConfig is http client config
 type ClientConfig struct {
 	Dial      time.Duration
 	Timeout   time.Duration
 	KeepAlive time.Duration
 }
 
+// Client is http client
 type Client struct {
 	conf      *ClientConfig
 	client    *http.Client
@@ -20,6 +22,7 @@ type Client struct {
 	transport *http.Transport
 }
 
+// NewClient returns a newly initialized Http Client object that implements the Client
 func NewClient(c *ClientConfig) *Client {
 	client := new(Client)
 	client.conf = c
