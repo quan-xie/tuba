@@ -36,13 +36,14 @@ func NewHTTPClientWithContext(c *Config) ClientWithContext {
 		Timeout:   time.Duration(c.Dial),
 		KeepAlive: time.Duration(c.KeepAlive),
 	}
+	transport := &http.Transport{
+		DialContext:     dialer.DialContext,
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
 	return &httpClientWithContext{
-		dialer: dialer,
-		transport: &http.Transport{
-			DialContext:     dialer.DialContext,
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		client: &http.Client{
+			Transport: transport,
 		},
-		client:     &http.Client{},
 		retryCount: defaultRetryCount,
 		retrier:    retry.NewNoRetrier(),
 	}
