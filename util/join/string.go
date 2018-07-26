@@ -15,6 +15,7 @@ var (
 	}
 )
 
+// JoinInts convert []int64 to string
 func JoinInts(is []int64) string {
 	if len(is) == 0 {
 		return ""
@@ -36,6 +37,7 @@ func JoinInts(is []int64) string {
 	return s
 }
 
+// SplitInts convert string to []int64
 func SplitInts(s string) ([]int64, error) {
 	sArr := strings.Split(s, ",")
 	res := make([]int64, 0, len(sArr))
