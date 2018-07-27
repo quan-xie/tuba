@@ -22,7 +22,7 @@ type Config struct {
 	retryCount int
 }
 
-type httpClientWithContext struct {
+type HttpClient struct {
 	client     *http.Client
 	dialer     *net.Dialer
 	transport  *http.Transport
@@ -31,7 +31,7 @@ type httpClientWithContext struct {
 }
 
 // NewHTTPClientWithContext returns a new instance of httpClientWithContext
-func NewHTTPClientWithContext(c *Config) ClientWithContext {
+func NewHTTPClient(c *Config) *HttpClient {
 	dialer := &net.Dialer{
 		Timeout:   time.Duration(c.Dial),
 		KeepAlive: time.Duration(c.KeepAlive),
@@ -40,7 +40,7 @@ func NewHTTPClientWithContext(c *Config) ClientWithContext {
 		DialContext:     dialer.DialContext,
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
-	return &httpClientWithContext{
+	return &HttpClient{
 		client: &http.Client{
 			Transport: transport,
 		},
@@ -50,17 +50,17 @@ func NewHTTPClientWithContext(c *Config) ClientWithContext {
 }
 
 // SetRetryCount sets the retry count for the httpClient
-func (c *httpClientWithContext) SetRetryCount(count int) {
+func (c *HttpClient) SetRetryCount(count int) {
 	c.retryCount = count
 }
 
 // SetRetryCount sets the retry count for the httpClient
-func (c *httpClientWithContext) SetRetrier(retrier retry.Retriable) {
+func (c *HttpClient) SetRetrier(retrier retry.Retriable) {
 	c.retrier = retrier
 }
 
 // Get makes a HTTP GET request to provided URL with context passed in
-func (c *httpClientWithContext) Get(ctx context.Context, url string, headers http.Header) (*http.Response, error) {
+func (c *HttpClient) Get(ctx context.Context, url string, headers http.Header) (*http.Response, error) {
 	var response *http.Response
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -73,7 +73,7 @@ func (c *httpClientWithContext) Get(ctx context.Context, url string, headers htt
 }
 
 // Post makes a HTTP POST request to provided URL with context passed in
-func (c *httpClientWithContext) Post(ctx context.Context, url string, body io.Reader, headers http.Header) (*http.Response, error) {
+func (c *HttpClient) Post(ctx context.Context, url string, body io.Reader, headers http.Header) (*http.Response, error) {
 	var response *http.Response
 	request, err := http.NewRequest(http.MethodPost, url, body)
 	if err != nil {
@@ -86,7 +86,7 @@ func (c *httpClientWithContext) Post(ctx context.Context, url string, body io.Re
 }
 
 // Put makes a HTTP PUT request to provided URL with context passed in
-func (c *httpClientWithContext) Put(ctx context.Context, url string, body io.Reader, headers http.Header) (*http.Response, error) {
+func (c *HttpClient) Put(ctx context.Context, url string, body io.Reader, headers http.Header) (*http.Response, error) {
 	var response *http.Response
 	request, err := http.NewRequest(http.MethodPut, url, body)
 	if err != nil {
@@ -99,7 +99,7 @@ func (c *httpClientWithContext) Put(ctx context.Context, url string, body io.Rea
 }
 
 // Patch makes a HTTP PATCH request to provided URL with context passed in
-func (c *httpClientWithContext) Patch(ctx context.Context, url string, body io.Reader, headers http.Header) (*http.Response, error) {
+func (c *HttpClient) Patch(ctx context.Context, url string, body io.Reader, headers http.Header) (*http.Response, error) {
 	var response *http.Response
 	request, err := http.NewRequest(http.MethodPatch, url, body)
 	if err != nil {
@@ -112,7 +112,7 @@ func (c *httpClientWithContext) Patch(ctx context.Context, url string, body io.R
 }
 
 // Delete makes a HTTP DELETE request to provided URL with context passed in
-func (c *httpClientWithContext) Delete(ctx context.Context, url string, headers http.Header) (*http.Response, error) {
+func (c *HttpClient) Delete(ctx context.Context, url string, headers http.Header) (*http.Response, error) {
 	var response *http.Response
 	request, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
@@ -125,7 +125,7 @@ func (c *httpClientWithContext) Delete(ctx context.Context, url string, headers 
 }
 
 // Do makes an HTTP request with the native `http.Do` interface and context passed in
-func (c *httpClientWithContext) Do(ctx context.Context, req *http.Request) (response *http.Response, err error) {
+func (c *HttpClient) Do(ctx context.Context, req *http.Request) (response *http.Response, err error) {
 
 	for i := 0; i <= c.retryCount; i++ {
 		contextCancelled := false
