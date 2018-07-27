@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	_minRead              = 16 * 1024 // 16kb
+	minRead               = 16 * 1024 // 16kb
 	defaultRetryCount int = 0
 )
 
@@ -159,7 +159,7 @@ func (c *HttpClient) Do(ctx context.Context, req *http.Request, res interface{})
 			time.Sleep(backoffTime)
 			continue
 		}
-		bs, err = readAll(response.Body, _minRead)
+		bs, err = readAll(response.Body, minRead)
 		if err != nil {
 			err = errors.Wrap(err, "readAll - readAll failed")
 			return err
