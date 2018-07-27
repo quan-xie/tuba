@@ -28,6 +28,7 @@ type Config struct {
 }
 
 type HttpClient struct {
+	conf       *Config
 	client     *http.Client
 	dialer     *net.Dialer
 	transport  *http.Transport
@@ -46,6 +47,7 @@ func NewHTTPClient(c *Config) *HttpClient {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	return &HttpClient{
+		conf: c,
 		client: &http.Client{
 			Transport: transport,
 		},
@@ -129,10 +131,13 @@ func (c *HttpClient) Do(ctx context.Context, req *http.Request, res interface{})
 	var (
 		response *http.Response
 		bs       []byte
+		cancel   func()
 	)
 	for i := 0; i <= c.retryCount; i++ {
 		contextCancelled := false
 		var err error
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(c.conf.Timeout))
+		defer cancel()
 		response, err = c.client.Do(req.WithContext(ctx))
 		if err != nil {
 			select {
@@ -140,7 +145,6 @@ func (c *HttpClient) Do(ctx context.Context, req *http.Request, res interface{})
 				err = ctx.Err()
 				contextCancelled = true
 			}
-
 			if contextCancelled {
 				break
 			}
