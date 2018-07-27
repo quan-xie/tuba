@@ -1,9 +1,10 @@
 package httpclient
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
-	"fmt"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -14,7 +15,10 @@ import (
 	"github.com/quan-xie/tuba/util/xtime"
 )
 
-const defaultRetryCount int = 0
+const (
+	_minRead              = 16 * 1024 // 16kb
+	defaultRetryCount int = 0
+)
 
 type Config struct {
 	Dial       xtime.Duration
@@ -31,7 +35,7 @@ type HttpClient struct {
 	retrier    retry.Retriable
 }
 
-// NewHTTPClientWithContext returns a new instance of httpClientWithContext
+// NewHTTPClient returns a new instance of httpClient
 func NewHTTPClient(c *Config) *HttpClient {
 	dialer := &net.Dialer{
 		Timeout:   time.Duration(c.Dial),
@@ -61,73 +65,71 @@ func (c *HttpClient) SetRetrier(retrier retry.Retriable) {
 }
 
 // Get makes a HTTP GET request to provided URL with context passed in
-func (c *HttpClient) Get(ctx context.Context, url string, headers http.Header) (*http.Response, error) {
-	var response *http.Response
+func (c *HttpClient) Get(ctx context.Context, url string, headers http.Header, res interface{}) (err error) {
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return response, errors.Wrap(err, "GET - request creation failed")
+		return errors.Wrap(err, "GET - request creation failed")
 	}
 
 	request.Header = headers
 
-	return c.Do(ctx, request)
+	return c.Do(ctx, request, res)
 }
 
 // Post makes a HTTP POST request to provided URL with context passed in
-func (c *HttpClient) Post(ctx context.Context, url string, body io.Reader, headers http.Header) (*http.Response, error) {
-	var response *http.Response
+func (c *HttpClient) Post(ctx context.Context, url string, body io.Reader, headers http.Header, res interface{}) (err error) {
 	request, err := http.NewRequest(http.MethodPost, url, body)
 	if err != nil {
-		return response, errors.Wrap(err, "POST - request creation failed")
+		return errors.Wrap(err, "POST - request creation failed")
 	}
 
 	request.Header = headers
 
-	return c.Do(ctx, request)
+	return c.Do(ctx, request, res)
 }
 
 // Put makes a HTTP PUT request to provided URL with context passed in
-func (c *HttpClient) Put(ctx context.Context, url string, body io.Reader, headers http.Header) (*http.Response, error) {
-	var response *http.Response
+func (c *HttpClient) Put(ctx context.Context, url string, body io.Reader, headers http.Header, res interface{}) (err error) {
 	request, err := http.NewRequest(http.MethodPut, url, body)
 	if err != nil {
-		return response, errors.Wrap(err, "PUT - request creation failed")
+		return errors.Wrap(err, "PUT - request creation failed")
 	}
 
 	request.Header = headers
 
-	return c.Do(ctx, request)
+	return c.Do(ctx, request, res)
 }
 
 // Patch makes a HTTP PATCH request to provided URL with context passed in
-func (c *HttpClient) Patch(ctx context.Context, url string, body io.Reader, headers http.Header) (*http.Response, error) {
-	var response *http.Response
+func (c *HttpClient) Patch(ctx context.Context, url string, body io.Reader, headers http.Header, res interface{}) (err error) {
 	request, err := http.NewRequest(http.MethodPatch, url, body)
 	if err != nil {
-		return response, errors.Wrap(err, "PATCH - request creation failed")
+		return errors.Wrap(err, "PATCH - request creation failed")
 	}
 
 	request.Header = headers
 
-	return c.Do(ctx, request)
+	return c.Do(ctx, request, res)
 }
 
 // Delete makes a HTTP DELETE request to provided URL with context passed in
-func (c *HttpClient) Delete(ctx context.Context, url string, headers http.Header) (*http.Response, error) {
-	var response *http.Response
+func (c *HttpClient) Delete(ctx context.Context, url string, headers http.Header, res interface{}) (err error) {
 	request, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
-		return response, errors.Wrap(err, "DELETE - request creation failed")
+		return errors.Wrap(err, "DELETE - request creation failed")
 	}
 
 	request.Header = headers
 
-	return c.Do(ctx, request)
+	return c.Do(ctx, request, res)
 }
 
 // Do makes an HTTP request with the native `http.Do` interface and context passed in
-func (c *HttpClient) Do(ctx context.Context, req *http.Request) (response *http.Response, err error) {
-
+func (c *HttpClient) Do(ctx context.Context, req *http.Request, res interface{}) (err error) {
+	var (
+		response *http.Response
+		bs       []byte
+	)
 	for i := 0; i <= c.retryCount; i++ {
 		contextCancelled := false
 		var err error
@@ -146,17 +148,45 @@ func (c *HttpClient) Do(ctx context.Context, req *http.Request) (response *http.
 			time.Sleep(backoffTime)
 			continue
 		}
-
+		defer response.Body.Close()
 		if response.StatusCode >= http.StatusInternalServerError {
 
 			backoffTime := c.retrier.NextInterval(i)
 			time.Sleep(backoffTime)
-			fmt.Println("R: ", response.StatusCode)
 			continue
+		}
+		bs, err = readAll(response.Body, _minRead)
+		if err != nil {
+			err = errors.Wrap(err, "readAll - readAll failed")
+			return err
+		}
+		if res != nil {
+			if err = json.Unmarshal(bs, res); err != nil {
+				err = errors.Wrap(err, "Unmarshal failed")
+				return err
+			}
 		}
 		// Clear errors if any iteration succeeds
 		break
 	}
+	return
+}
 
-	return response, err
+func readAll(r io.Reader, capacity int64) (b []byte, err error) {
+	buf := bytes.NewBuffer(make([]byte, 0, capacity))
+	// If the buffer overflows, we will get bytes.ErrTooLarge.
+	// Return that as an error. Any other panic remains.
+	defer func() {
+		e := recover()
+		if e == nil {
+			return
+		}
+		if panicErr, ok := e.(error); ok && panicErr == bytes.ErrTooLarge {
+			err = panicErr
+		} else {
+			panic(e)
+		}
+	}()
+	_, err = buf.ReadFrom(r)
+	return buf.Bytes(), err
 }
