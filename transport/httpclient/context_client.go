@@ -11,14 +11,15 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/quan-xie/tuba/util/retry"
+	"github.com/quan-xie/tuba/util/xtime"
 )
 
 const defaultRetryCount int = 0
 
 type Config struct {
-	Dial       time.Duration
-	Timeout    time.Duration
-	KeepAlive  time.Duration
+	Dial       xtime.Duration
+	Timeout    xtime.Duration
+	KeepAlive  xtime.Duration
 	retryCount int
 }
 
