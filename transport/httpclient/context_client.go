@@ -158,17 +158,16 @@ func (c *HttpClient) request(ctx context.Context, req *http.Request, res interfa
 	}
 	defer response.Body.Close()
 	if response.StatusCode >= http.StatusInternalServerError {
+		err = errors.Wrap(err, "StatusInternalServerError - Status Internal ServerError")
 		return
 	}
-	bs, err = readAll(response.Body, minRead)
-	if err != nil {
+	if bs, err = readAll(response.Body, minRead); err != nil {
 		err = errors.Wrap(err, "readAll - readAll failed")
-		return err
+		return
 	}
 	if res != nil {
 		if err = json.Unmarshal(bs, res); err != nil {
 			err = errors.Wrap(err, "Unmarshal failed")
-			return err
 		}
 	}
 	return
