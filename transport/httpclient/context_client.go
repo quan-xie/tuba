@@ -128,50 +128,48 @@ func (c *HttpClient) Delete(ctx context.Context, url string, headers http.Header
 
 // Do makes an HTTP request with the native `http.Do` interface and context passed in
 func (c *HttpClient) Do(ctx context.Context, req *http.Request, res interface{}) (err error) {
+	for i := 0; i <= c.retryCount; i++ {
+		if err = c.request(ctx, req, res); err != nil {
+			err = errors.Wrap(err, "request - request failed")
+			backoffTime := c.retrier.NextInterval(i)
+			time.Sleep(backoffTime)
+			continue
+		}
+		break
+	}
+	return
+}
+
+func (c *HttpClient) request(ctx context.Context, req *http.Request, res interface{}) (err error) {
 	var (
 		response *http.Response
 		bs       []byte
 		cancel   func()
 	)
-	for i := 0; i <= c.retryCount; i++ {
-		contextCancelled := false
-		var err error
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(c.conf.Timeout))
-		defer cancel()
-		response, err = c.client.Do(req.WithContext(ctx))
-		if err != nil {
-			select {
-			case <-ctx.Done():
-				err = ctx.Err()
-				contextCancelled = true
-			}
-			if contextCancelled {
-				break
-			}
-			backoffTime := c.retrier.NextInterval(i)
-			time.Sleep(backoffTime)
-			continue
+	ctx, cancel = context.WithTimeout(ctx, time.Duration(c.conf.Timeout))
+	defer cancel()
+	response, err = c.client.Do(req.WithContext(ctx))
+	if err != nil {
+		select {
+		case <-ctx.Done():
+			err = ctx.Err()
 		}
-		defer response.Body.Close()
-		if response.StatusCode >= http.StatusInternalServerError {
-
-			backoffTime := c.retrier.NextInterval(i)
-			time.Sleep(backoffTime)
-			continue
-		}
-		bs, err = readAll(response.Body, minRead)
-		if err != nil {
-			err = errors.Wrap(err, "readAll - readAll failed")
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= http.StatusInternalServerError {
+		return
+	}
+	bs, err = readAll(response.Body, minRead)
+	if err != nil {
+		err = errors.Wrap(err, "readAll - readAll failed")
+		return err
+	}
+	if res != nil {
+		if err = json.Unmarshal(bs, res); err != nil {
+			err = errors.Wrap(err, "Unmarshal failed")
 			return err
 		}
-		if res != nil {
-			if err = json.Unmarshal(bs, res); err != nil {
-				err = errors.Wrap(err, "Unmarshal failed")
-				return err
-			}
-		}
-		// Clear errors if any iteration succeeds
-		break
 	}
 	return
 }
