@@ -6,12 +6,13 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"io"
-	"log"
 	"net"
-	"net/http"
+	xhttp "net/http"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/quan-xie/tuba/log"
 	"github.com/quan-xie/tuba/util/retry"
 	"github.com/quan-xie/tuba/util/xtime"
 )
@@ -30,9 +31,9 @@ type Config struct {
 
 type HttpClient struct {
 	conf       *Config
-	client     *http.Client
+	client     *xhttp.Client
 	dialer     *net.Dialer
-	transport  *http.Transport
+	transport  *xhttp.Transport
 	retryCount int
 	retrier    retry.Retriable
 }
@@ -43,13 +44,13 @@ func NewHTTPClient(c *Config) *HttpClient {
 		Timeout:   time.Duration(c.Dial),
 		KeepAlive: time.Duration(c.KeepAlive),
 	}
-	transport := &http.Transport{
+	transport := &xhttp.Transport{
 		DialContext:     dialer.DialContext,
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	return &HttpClient{
 		conf: c,
-		client: &http.Client{
+		client: &xhttp.Client{
 			Transport: transport,
 		},
 		retryCount: defaultRetryCount,
@@ -68,8 +69,8 @@ func (c *HttpClient) SetRetrier(retrier retry.Retriable) {
 }
 
 // Get makes a HTTP GET request to provided URL with context passed in
-func (c *HttpClient) Get(ctx context.Context, url string, headers http.Header, res interface{}) (err error) {
-	request, err := http.NewRequest(http.MethodGet, url, nil)
+func (c *HttpClient) Get(ctx context.Context, url string, headers xhttp.Header, res interface{}) (err error) {
+	request, err := xhttp.NewRequest(xhttp.MethodGet, url, nil)
 	if err != nil {
 		return errors.Wrap(err, "GET - request creation failed")
 	}
@@ -80,58 +81,73 @@ func (c *HttpClient) Get(ctx context.Context, url string, headers http.Header, r
 }
 
 // Post makes a HTTP POST request to provided URL with context passed in
-func (c *HttpClient) Post(ctx context.Context, url string, body io.Reader, headers http.Header, res interface{}) (err error) {
-	request, err := http.NewRequest(http.MethodPost, url, body)
+func (c *HttpClient) Post(ctx context.Context, url, contentType string, headers xhttp.Header, param, res interface{}) (err error) {
+	request, err := xhttp.NewRequest(xhttp.MethodPost, url, reqBody(contentType, param))
 	if err != nil {
 		return errors.Wrap(err, "POST - request creation failed")
 	}
-
+	if headers == nil {
+		headers = make(xhttp.Header)
+	}
+	headers.Set("Content-Type", contentType)
 	request.Header = headers
 
 	return c.Do(ctx, request, res)
 }
 
 // Put makes a HTTP PUT request to provided URL with context passed in
-func (c *HttpClient) Put(ctx context.Context, url string, body io.Reader, headers http.Header, res interface{}) (err error) {
-	request, err := http.NewRequest(http.MethodPut, url, body)
+func (c *HttpClient) Put(ctx context.Context, url, contentType string, headers xhttp.Header, param, res interface{}) (err error) {
+	request, err := xhttp.NewRequest(xhttp.MethodPut, url, reqBody(contentType, param))
 	if err != nil {
 		return errors.Wrap(err, "PUT - request creation failed")
 	}
 
+	if headers == nil {
+		headers = make(xhttp.Header)
+	}
+	headers.Set("Content-Type", contentType)
 	request.Header = headers
 
 	return c.Do(ctx, request, res)
 }
 
 // Patch makes a HTTP PATCH request to provided URL with context passed in
-func (c *HttpClient) Patch(ctx context.Context, url string, body io.Reader, headers http.Header, res interface{}) (err error) {
-	request, err := http.NewRequest(http.MethodPatch, url, body)
+func (c *HttpClient) Patch(ctx context.Context, url, contentType string, headers xhttp.Header, param, res interface{}) (err error) {
+	request, err := xhttp.NewRequest(xhttp.MethodPatch, url, reqBody(contentType, param))
 	if err != nil {
 		return errors.Wrap(err, "PATCH - request creation failed")
 	}
 
+	if headers == nil {
+		headers = make(xhttp.Header)
+	}
+	headers.Set("Content-Type", contentType)
 	request.Header = headers
 
 	return c.Do(ctx, request, res)
 }
 
 // Delete makes a HTTP DELETE request to provided URL with context passed in
-func (c *HttpClient) Delete(ctx context.Context, url string, headers http.Header, res interface{}) (err error) {
-	request, err := http.NewRequest(http.MethodDelete, url, nil)
+func (c *HttpClient) Delete(ctx context.Context, url, contentType string, headers xhttp.Header, param, res interface{}) (err error) {
+	request, err := xhttp.NewRequest(xhttp.MethodDelete, url, nil)
 	if err != nil {
 		return errors.Wrap(err, "DELETE - request creation failed")
 	}
 
+	if headers == nil {
+		headers = make(xhttp.Header)
+	}
+	headers.Set("Content-Type", contentType)
 	request.Header = headers
 
 	return c.Do(ctx, request, res)
 }
 
 // Do makes an HTTP request with the native `http.Do` interface and context passed in
-func (c *HttpClient) Do(ctx context.Context, req *http.Request, res interface{}) (err error) {
+func (c *HttpClient) Do(ctx context.Context, req *xhttp.Request, res interface{}) (err error) {
 	for i := 0; i <= c.retryCount; i++ {
 		if err = c.request(ctx, req, res); err != nil {
-			err = errors.Wrap(err, "request - request failed")
+			log.Error("request - request failed error(%v)", err)
 			backoffTime := c.retrier.NextInterval(i)
 			time.Sleep(backoffTime)
 			continue
@@ -141,9 +157,9 @@ func (c *HttpClient) Do(ctx context.Context, req *http.Request, res interface{})
 	return
 }
 
-func (c *HttpClient) request(ctx context.Context, req *http.Request, res interface{}) (err error) {
+func (c *HttpClient) request(ctx context.Context, req *xhttp.Request, res interface{}) (err error) {
 	var (
-		response *http.Response
+		response *xhttp.Response
 		bs       []byte
 		cancel   func()
 	)
@@ -158,20 +174,41 @@ func (c *HttpClient) request(ctx context.Context, req *http.Request, res interfa
 		return
 	}
 	defer response.Body.Close()
-	if response.StatusCode >= http.StatusInternalServerError {
-		err = errors.Wrap(err, "StatusInternalServerError - Status Internal ServerError")
+	if response.StatusCode >= xhttp.StatusInternalServerError {
+		err = errors.Wrap(err, "")
+		log.Error("StatusInternalServerError - Status Internal ServerError error(%v)", err)
 		return
 	}
 	if bs, err = readAll(response.Body, minRead); err != nil {
-		err = errors.Wrap(err, "readAll - readAll failed")
-		log.Println("readAll error:", err)
+		log.Error("readAll error(%v)", err)
 		return
 	}
 	if res != nil {
-		if err = json.Unmarshal(bs, res); err != nil {
-			err = errors.Wrap(err, "Unmarshal failed")
-			log.Println("json unmarshal error:", err)
+		if err = json.Unmarshal(bs, &res); err != nil {
+			log.Error("json unmarshal error(%v)", err)
 		}
+	}
+	return
+}
+
+func reqBody(contentType string, param interface{}) (body io.Reader) {
+	var (
+		err error
+	)
+	if contentType == MIMEPOSTForm {
+		enc, ok := param.(string)
+		if ok {
+			body = strings.NewReader(enc)
+		}
+	}
+	if contentType == MIMEJSON {
+		buff := new(bytes.Buffer)
+		err = json.NewEncoder(buff).Encode(param)
+		if err != nil {
+			log.Error("failed to marshal user payload: %v", err)
+			return
+		}
+		body = buff
 	}
 	return
 }
