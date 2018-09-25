@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"time"
@@ -163,11 +164,13 @@ func (c *HttpClient) request(ctx context.Context, req *http.Request, res interfa
 	}
 	if bs, err = readAll(response.Body, minRead); err != nil {
 		err = errors.Wrap(err, "readAll - readAll failed")
+		log.Println("readAll error:", err)
 		return
 	}
 	if res != nil {
 		if err = json.Unmarshal(bs, res); err != nil {
 			err = errors.Wrap(err, "Unmarshal failed")
+			log.Println("json unmarshal error:", err)
 		}
 	}
 	return
