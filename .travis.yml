@@ -4,13 +4,13 @@ go:
   - 1.12.x
 env:
   - GO111MODULE=on
+  - GOFLAGS='-mod vendor'
 
-before_install:
-  - if [[ "${GO111MODULE}" = "on" ]]; then mkdir "${HOME}/go"; export GOPATH="${HOME}/go"; fi
+git:
+  depth: 1
 
-install:
-  - if [[ "${GO111MODULE}" = "on" ]]; then go mod download; else make install; fi
-  - if [[ "${GO111MODULE}" = "on" ]]; then export PATH="${GOPATH}/bin:${GOROOT}/bin:${PATH}"; fi
-  - if [[ "${GO111MODULE}" = "on" ]]; then make tools; fi
+install: true
 
-go_import_path: github.com/quan-xie/tuba
+script:
+  - go test -v ./...
+

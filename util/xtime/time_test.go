@@ -3,7 +3,7 @@ package xtime
 import "testing"
 
 func TestDuration_UnmarshalText(t *testing.T) {
- t.Log(nil)
+	t.Log(nil)
 }
 
 func TestTime_Scan(t *testing.T) {
