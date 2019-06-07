@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/quan-xie/tuba/backoff"
-	"github.com/quan-xie/tuba/retry"
-
 	"github.com/pkg/errors"
-	"github.com/quan-xie/tuba/log"
+	"go.uber.org/zap"
 
+	"github.com/quan-xie/tuba/backoff"
+	"github.com/quan-xie/tuba/log"
+	"github.com/quan-xie/tuba/retry"
 	"github.com/quan-xie/tuba/util/xtime"
 )
 
@@ -153,7 +153,7 @@ func (c *HttpClient) Do(ctx context.Context, req *xhttp.Request, res interface{}
 	for i := 0; i <= c.retryCount; i++ {
 		if err = c.request(ctx, req, res); err != nil {
 			backoffTime := c.retrier.NextInterval(i)
-			log.Error("backoff times(%d) time(%d)request - request failed error(%v)", i, backoffTime, err)
+			log.Error("http request error", zap.Int("retry", i), zap.Error(err))
 			time.Sleep(backoffTime)
 			continue
 		}
@@ -181,7 +181,7 @@ func (c *HttpClient) request(ctx context.Context, req *xhttp.Request, res interf
 	defer response.Body.Close()
 	if response.StatusCode >= xhttp.StatusInternalServerError {
 		err = errors.Wrap(err, "")
-		log.Error("StatusInternalServerError - Status Internal ServerError error(%v)", err)
+		log.Error("StatusInternalServerError - Status Internal ServerError error", zap.Error(err))
 		return
 	}
 	if bs, err = readAll(response.Body, minRead); err != nil {

@@ -1,9 +1,9 @@
 package retry
 
 import (
-	"github.com/quan-xie/tuba/backoff"
-	"github.com/quan-xie/tuba/log"
 	"time"
+
+	"github.com/quan-xie/tuba/backoff"
 )
 
 // Retriable defines contract for retriers to implement
@@ -47,7 +47,6 @@ func NewRetrierFunc(f RetriableFunc) Retriable {
 	return f
 }
 
-
 // NextInterval returns next retriable time
 func (r *retrier) NextInterval(retry int) time.Duration {
 	return r.backoff.Next(retry)
@@ -69,7 +68,6 @@ func (r *noRetrier) NextInterval(retry int) time.Duration {
 func (r *retrier) Do(fn RetryFunc, retries int) (err error) {
 	for i := 0; i <= retries; i++ {
 		if err = fn(); err != nil {
-			log.Error("retry Do error %v after %d retry", err, r.NextInterval(i))
 			time.Sleep(r.NextInterval(i))
 			continue
 		}
@@ -81,7 +79,6 @@ func (r *retrier) Do(fn RetryFunc, retries int) (err error) {
 func (r *noRetrier) Do(fn RetryFunc, retries int) (err error) {
 	for i := 0; i <= retries; i++ {
 		if err = fn(); err != nil {
-			log.Error("retry Do error %v after %d retry", err, r.NextInterval(i))
 			time.Sleep(r.NextInterval(i))
 			continue
 		}
