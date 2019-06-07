@@ -2,9 +2,10 @@ package backoff
 
 import (
 	"fmt"
-	"github.com/quan-xie/tuba/util/xtime"
 	"testing"
 	"time"
+
+	"github.com/quan-xie/tuba/util/xtime"
 )
 
 func TestExponentialBackoff_Next(t *testing.T) {
