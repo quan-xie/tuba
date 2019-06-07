@@ -5,13 +5,14 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"github.com/quan-xie/tuba/backoff"
-	"github.com/quan-xie/tuba/retry"
 	"io"
 	"net"
 	xhttp "net/http"
 	"strings"
 	"time"
+
+	"github.com/quan-xie/tuba/backoff"
+	"github.com/quan-xie/tuba/retry"
 
 	"github.com/pkg/errors"
 	"github.com/quan-xie/tuba/log"

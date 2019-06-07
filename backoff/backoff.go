@@ -1,9 +1,10 @@
 package backoff
 
 import (
-	"github.com/quan-xie/tuba/util/xtime"
 	"math"
 	"time"
+
+	"github.com/quan-xie/tuba/util/xtime"
 )
 
 // Backoff interface defines contract for backoff strategies
