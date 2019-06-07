@@ -14,5 +14,5 @@ go get -u github.com/quan-xie/tuba
 - [x] HttpClient  
 - [ ] Database (mysql)  
 - [ ] Cache  (memcache、redis)
-- [ ] Logger 
+- [x] Logger 
 - [ ] RPC 
