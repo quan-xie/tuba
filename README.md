@@ -10,9 +10,12 @@ go get -u github.com/quan-xie/tuba
 ```
 
 ## TODO 
-
+- [x] Backoff
+- [x] Rerty 
 - [x] HttpClient  
+- [x] Logger 
 - [ ] Database (mysql)  
 - [ ] Cache  (memcache、redis)
-- [x] Logger 
 - [ ] RPC 
+- [ ] trace
+- [ ] service discovery
