@@ -28,9 +28,10 @@ func init() {
 func TestHttpClient_Get(t *testing.T) {
 	var res interface{}
 	client.SetRetryCount(5)
-	err := client.Get(context.Background(), "https://www.google.com", nil, &res)
+	err := client.Get(context.Background(), "http://httpbin.org/get", nil, &res)
 	if err != nil {
 		t.Log(err)
+		return
 	}
 	t.Log(res)
 
