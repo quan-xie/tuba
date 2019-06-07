@@ -12,10 +12,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
 
 	"github.com/quan-xie/tuba/backoff"
-	"github.com/quan-xie/tuba/log"
 	"github.com/quan-xie/tuba/retry"
 	"github.com/quan-xie/tuba/util/xtime"
 )
@@ -185,7 +183,7 @@ func (c *HttpClient) request(ctx context.Context, req *xhttp.Request, res interf
 	if bs, err = readAll(response.Body, minRead); err != nil {
 		return
 	}
-    err = json.Unmarshal(bs, &res)
+	err = json.Unmarshal(bs, &res)
 	return
 }
 

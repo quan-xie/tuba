@@ -4,8 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quan-xie/tuba/util/xtime"
 	"golang.org/x/net/context"
+
+	"github.com/quan-xie/tuba/util/xtime"
 )
 
 var (
