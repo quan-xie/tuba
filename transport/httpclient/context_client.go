@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"github.com/quan-xie/tuba/backoff"
+	"github.com/quan-xie/tuba/retry"
 	"io"
 	"net"
 	xhttp "net/http"
@@ -13,7 +15,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/quan-xie/tuba/log"
-	"github.com/quan-xie/tuba/util/retry"
+
 	"github.com/quan-xie/tuba/util/xtime"
 )
 
@@ -23,10 +25,11 @@ const (
 )
 
 type Config struct {
-	Dial       xtime.Duration
-	Timeout    xtime.Duration
-	KeepAlive  xtime.Duration
-	retryCount int
+	Dial            xtime.Duration
+	Timeout         xtime.Duration
+	KeepAlive       xtime.Duration
+	BackoffInterval xtime.Duration // Interval is second
+	retryCount      int
 }
 
 type HttpClient struct {
@@ -48,13 +51,14 @@ func NewHTTPClient(c *Config) *HttpClient {
 		DialContext:     dialer.DialContext,
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
+	bo := backoff.NewConstantBackoff(c.BackoffInterval)
 	return &HttpClient{
 		conf: c,
 		client: &xhttp.Client{
 			Transport: transport,
 		},
 		retryCount: defaultRetryCount,
-		retrier:    retry.NewNoRetrier(),
+		retrier:    retry.NewRetrier(bo),
 	}
 }
 
@@ -147,8 +151,8 @@ func (c *HttpClient) Delete(ctx context.Context, url, contentType string, header
 func (c *HttpClient) Do(ctx context.Context, req *xhttp.Request, res interface{}) (err error) {
 	for i := 0; i <= c.retryCount; i++ {
 		if err = c.request(ctx, req, res); err != nil {
-			log.Error("request - request failed error(%v)", err)
 			backoffTime := c.retrier.NextInterval(i)
+			log.Error("backoff times(%d) time(%d)request - request failed error(%v)", i, backoffTime, err)
 			time.Sleep(backoffTime)
 			continue
 		}
@@ -192,9 +196,7 @@ func (c *HttpClient) request(ctx context.Context, req *xhttp.Request, res interf
 }
 
 func reqBody(contentType string, param interface{}) (body io.Reader) {
-	var (
-		err error
-	)
+	var err error
 	if contentType == MIMEPOSTForm {
 		enc, ok := param.(string)
 		if ok {
