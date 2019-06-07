@@ -15,17 +15,19 @@ var (
 
 func init() {
 	cfg = &Config{
-		Dial:       xtime.Duration(time.Second),
-		Timeout:    xtime.Duration(time.Second),
-		KeepAlive:  xtime.Duration(time.Second),
-		retryCount: 2,
+		Dial:            xtime.Duration(time.Second),
+		Timeout:         xtime.Duration(time.Second),
+		KeepAlive:       xtime.Duration(time.Second),
+		BackoffInterval: xtime.Duration(time.Second),
+		retryCount:      10,
 	}
 	client = NewHTTPClient(cfg)
 }
 
 func TestHttpClient_Get(t *testing.T) {
 	var res interface{}
-	err := client.Get(context.Background(), "http://httpbin.org/get", nil, &res)
+	client.SetRetryCount(5)
+	err := client.Get(context.Background(), "https://www.google.com", nil, &res)
 	if err != nil {
 		t.Log(err)
 	}

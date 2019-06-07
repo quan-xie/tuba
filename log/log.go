@@ -23,47 +23,49 @@ func Init(conf *Config) {
 		pathMap := PathMap{
 			logrus.InfoLevel:  conf.Dir + "/info.log",
 			logrus.ErrorLevel: conf.Dir + "/error.log",
+			logrus.WarnLevel:  conf.Dir + "/warn.log",
 		}
 		xlog.Hooks.Add(NewLocalHook(
 			pathMap,
 			&logrus.JSONFormatter{},
 		))
 	}
-	logstash, err := NewLogstash(conf.Logstash)
-	if err == nil {
-		xlog.Hooks.Add(logstash)
+	logStash, err := NewLogstash(conf.Logstash)
+	if err != nil {
+		xlog.Error("NewLogstash error(%v)", err)
+	} else {
+		xlog.Hooks.Add(logStash)
 	}
-	xlog.Error("NewLogstash error(%v)", err)
 }
 
 // Info send log info to logstash
 func Info(format string, args ...interface{}) {
 	xlog.SetLevel(logrus.InfoLevel)
-	xlog.Infof(format, args)
+	xlog.Infof(format, args...)
 }
 
 // Error send log error to logstash
 func Error(format string, args ...interface{}) {
 	xlog.SetLevel(logrus.ErrorLevel)
-	xlog.Errorf(format, args)
+	xlog.Errorf(format, args...)
 }
 
 // Warn send log warn to logstash
 func Warn(format string, args ...interface{}) {
 	xlog.SetLevel(logrus.WarnLevel)
-	xlog.Warnf(format, args)
+	xlog.Warnf(format, args...)
 }
 
 // Debug send log debug to logstash
 func Debug(format string, args ...interface{}) {
 	xlog.SetLevel(logrus.DebugLevel)
-	xlog.Debugf(format, args)
+	xlog.Debugf(format, args...)
 }
 
 // Fatal send log fatal to logstash
 func Fatal(format string, args ...interface{}) {
 	xlog.SetLevel(logrus.FatalLevel)
-	xlog.Fatalf(format, args)
+	xlog.Fatalf(format, args...)
 }
 
 // Logger is the logrus logger handler
