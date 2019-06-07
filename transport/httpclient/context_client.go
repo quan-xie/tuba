@@ -153,7 +153,6 @@ func (c *HttpClient) Do(ctx context.Context, req *xhttp.Request, res interface{}
 	for i := 0; i <= c.retryCount; i++ {
 		if err = c.request(ctx, req, res); err != nil {
 			backoffTime := c.retrier.NextInterval(i)
-			log.Error("http request error", zap.Int("retry", i), zap.Error(err))
 			time.Sleep(backoffTime)
 			continue
 		}
@@ -181,18 +180,12 @@ func (c *HttpClient) request(ctx context.Context, req *xhttp.Request, res interf
 	defer response.Body.Close()
 	if response.StatusCode >= xhttp.StatusInternalServerError {
 		err = errors.Wrap(err, "")
-		log.Error("StatusInternalServerError - Status Internal ServerError error", zap.Error(err))
 		return
 	}
 	if bs, err = readAll(response.Body, minRead); err != nil {
-		log.Error("readAll error(%v)", err)
 		return
 	}
-	if res != nil {
-		if err = json.Unmarshal(bs, &res); err != nil {
-			log.Error("json unmarshal error(%v)", err)
-		}
-	}
+    err = json.Unmarshal(bs, &res)
 	return
 }
 
@@ -208,7 +201,6 @@ func reqBody(contentType string, param interface{}) (body io.Reader) {
 		buff := new(bytes.Buffer)
 		err = json.NewEncoder(buff).Encode(param)
 		if err != nil {
-			log.Error("failed to marshal user payload: %v", err)
 			return
 		}
 		body = buff
