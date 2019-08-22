@@ -1,10 +1,9 @@
 package httpclient
 
 import (
+	"context"
 	"testing"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/quan-xie/tuba/util/xtime"
 )
@@ -27,7 +26,7 @@ func init() {
 
 func TestHttpClient_Get(t *testing.T) {
 	var res interface{}
-	client.SetRetryCount(5)
+	client.SetRetryCount(2)
 	err := client.Get(context.Background(), "http://httpbin.org/get", nil, &res)
 	if err != nil {
 		t.Log(err)
