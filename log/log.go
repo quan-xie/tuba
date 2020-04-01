@@ -2,6 +2,7 @@ package log
 
 import (
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -16,25 +17,32 @@ var logger *zap.SugaredLogger
 type Config struct {
 	LogPath string
 	AppName string
+	Debug   bool
 }
 
 // Init initialize a log config .
 func Init(c *Config) {
-	encoder := zapcore.NewConsoleEncoder(zapcore.EncoderConfig{
-		MessageKey:  "msg",
-		LevelKey:    "level",
-		EncodeLevel: zapcore.CapitalLevelEncoder,
-		TimeKey:     "ts",
+	encoder := zapcore.NewJSONEncoder(zapcore.EncoderConfig{
+		TimeKey:       "time",
+		LevelKey:      "level",
+		NameKey:       "logger",
+		MessageKey:    "msg",
+		StacktraceKey: "stacktrace",
+		LineEnding:    zapcore.DefaultLineEnding,
+		EncodeLevel:   zapcore.LowercaseLevelEncoder,
 		EncodeTime: func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 			enc.AppendString(t.Format("2006-01-02 15:04:05"))
 		},
-		CallerKey:    "file",
-		EncodeCaller: zapcore.ShortCallerEncoder,
-		EncodeDuration: func(d time.Duration, enc zapcore.PrimitiveArrayEncoder) {
-			enc.AppendInt64(int64(d) / 1000000)
-		},
+		EncodeDuration: zapcore.SecondsDurationEncoder,
+		EncodeCaller:   zapcore.FullCallerEncoder,
+		EncodeName:     zapcore.FullNameEncoder,
 	})
-
+	highPriority := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+		return lvl >= zapcore.ErrorLevel
+	})
+	lowPriority := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+		return lvl >= zapcore.DebugLevel
+	})
 	debugLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
 		return lvl >= zapcore.DebugLevel
 	})
@@ -50,14 +58,19 @@ func Init(c *Config) {
 	fatalLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
 		return lvl >= zapcore.FatalLevel
 	})
-	core := zapcore.NewTee(
-		zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_debug.log")), debugLevel),
-		zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_info.log")), infoLevel),
-		zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_warn.log")), warnLevel),
-		zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_error.log")), errorLevel),
-		zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_fatal.log")), fatalLevel),
-	)
-	logger = zap.New(core, zap.AddCaller()).Sugar()
+	var cores []zapcore.Core
+	consoleDebugging := zapcore.Lock(os.Stdout)
+	consoleEncoder := zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())
+	if c.Debug {
+		cores = append(cores, zapcore.NewCore(consoleEncoder, consoleDebugging, highPriority))
+	}
+	cores = append(cores, zapcore.NewCore(consoleEncoder, consoleDebugging, lowPriority))
+	cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_debug.log")), debugLevel))
+	cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_info.log")), infoLevel))
+	cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_warn.log")), warnLevel))
+	cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_error.log")), errorLevel))
+	cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_fatal.log")), fatalLevel))
+	logger = zap.New(zapcore.NewTee(cores...), zap.AddCaller()).Sugar()
 }
 
 // TimeEncoder time encoder .
