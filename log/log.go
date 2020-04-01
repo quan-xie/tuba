@@ -78,29 +78,54 @@ func TimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 	enc.AppendString(t.Format(time.RFC3339Nano))
 }
 
-// Debug send log debug to logstash
-func Debug(msg string, args ...interface{}) {
+// Debugf log
+func Debugf(msg string, args ...interface{}) {
 	logger.Debugf(msg, args...)
 }
 
-// Info send log info to logstash
-func Info(msg string, args ...interface{}) {
+// Debug log
+func Debug(args ...interface{}) {
+	logger.Debug(args...)
+}
+
+// Infof log
+func Infof(msg string, args ...interface{}) {
 	logger.Infof(msg, args...)
 }
 
-// Error send log error to logstash
-func Error(msg string, args ...interface{}) {
+// Info log
+func Info(args ...interface{}) {
+	logger.Info(args...)
+}
+
+// Errorf log
+func Errorf(msg string, args ...interface{}) {
 	logger.Errorf(msg, args...)
 }
 
-// Warn send log warn to logstash
-func Warn(msg string, args ...interface{}) {
+// Error log
+func Error(args ...interface{}) {
+	logger.Error(args...)
+}
+
+// Warnf log
+func Warnf(msg string, args ...interface{}) {
 	logger.Warnf(msg, args...)
 }
 
-// Fatal send log fatal to logstash
-func Fatal(msg string, args ...interface{}) {
+// Warn log
+func Warn(msg string, args ...interface{}) {
+	logger.Warn(args...)
+}
+
+// Fatalf send log fatalf
+func Fatalf(msg string, args ...interface{}) {
 	logger.Fatalf(msg, args...)
+}
+
+// Fatal send log fatal
+func Fatal(args ...interface{}) {
+	logger.Fatal(args...)
 }
 
 func getWriter(filename string) io.Writer {
