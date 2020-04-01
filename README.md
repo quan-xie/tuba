@@ -13,10 +13,10 @@ go get -u github.com/quan-xie/tuba
 - [x] Backoff
 - [x] Rerty 
 - [x] HttpClient  
-- [x] Logger
+- [x] Logger (基于Uber Zap框架)
 - [ ] Auth 
 - [ ] Database (mysql)  
 - [ ] Cache  (memcache、redis)
 - [ ] RPC 
-- [ ] trace
-- [ ] service discovery
+- [ ] Trace
+- [ ] Service Discovery
