@@ -4,20 +4,30 @@ import (
 	"testing"
 )
 
+func init() {
+	cfg := &Config{
+		LogPath: "/",
+		AppName: "test",
+	}
+	Init(cfg)
+}
 
-func init(){
-	//cfg:=&Config{
-	//	Development:true,
-	//	OutputPaths:[]string{"stdout","/data/logs/tuba.log"},
-	//	ErrorOutputPaths:[]string{"stderr"},
-	//}
-	//Init(cfg)
+func Test_Debug(t *testing.T) {
+	Debug("hello %v", 10)
 }
 
 func Test_Info(t *testing.T) {
-	//Info("hello",zap.Any("%d",10))
+	Info("hello %v", 10)
+}
+
+func Test_Warn(t *testing.T) {
+	Warn("hello %v", 10)
 }
 
 func Test_Error(t *testing.T) {
-	//Error("hello error",zap.Any("number",10))
+	Error("hello %v", 10)
+}
+
+func Test_Fatal(t *testing.T) {
+	Fatal("hello %v", 10)
 }
