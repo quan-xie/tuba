@@ -5,12 +5,14 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"golang.org/x/net/http2"
+	"fmt"
 	"io"
 	"net"
 	xhttp "net/http"
 	"strings"
 	"time"
+
+	"golang.org/x/net/http2"
 
 	"github.com/pkg/errors"
 
@@ -184,7 +186,7 @@ func (c *HttpClient) request(ctx context.Context, req *xhttp.Request, res interf
 	}
 	defer response.Body.Close()
 	if response.StatusCode >= xhttp.StatusInternalServerError {
-		err = errors.Wrap(err, "")
+		err = errors.Wrap(err, fmt.Sprintf("response.StatusCode %d", response.StatusCode))
 		return
 	}
 	if bs, err = readAll(response.Body, minRead); err != nil {

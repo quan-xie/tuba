@@ -1,10 +1,9 @@
 package httpclient
 
 import (
+	"context"
 	"testing"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/quan-xie/tuba/util/xtime"
 )
