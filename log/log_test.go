@@ -6,28 +6,34 @@ import (
 
 func init() {
 	cfg := &Config{
-		LogPath: "/",
+		LogPath: "/Users/xiequan/data/logs/",
 		AppName: "test",
+		Debug:   true,
 	}
 	Init(cfg)
 }
 
 func Test_Debug(t *testing.T) {
-	Debug("hello %v", 10)
+	Debug("hello debug")
+	Debugf("hello number=%d", 100)
 }
 
 func Test_Info(t *testing.T) {
-	Info("hello %v", 10)
+	Info("hello")
+	Infof("hello number=%d", 100)
 }
 
 func Test_Warn(t *testing.T) {
-	Warn("hello %v", 10)
+	Warn("hello")
+	Warnf("hello  number=%d", 100)
 }
 
 func Test_Error(t *testing.T) {
-	Error("hello %v", 10)
+	Error("hello")
+	Errorf("hello number=%d", 100)
 }
 
 func Test_Fatal(t *testing.T) {
-	Fatal("hello %v", 10)
+	Fatal("hello")
+	Fatalf("hello  number=%d", 100)
 }
