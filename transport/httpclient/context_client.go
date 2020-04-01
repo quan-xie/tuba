@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/http2"
+
 	"github.com/pkg/errors"
 
 	"github.com/quan-xie/tuba/backoff"
@@ -28,6 +30,8 @@ type Config struct {
 	Dial            xtime.Duration
 	Timeout         xtime.Duration
 	KeepAlive       xtime.Duration
+	MaxConns        int
+	MaxIdle         int
 	BackoffInterval xtime.Duration // Interval is second
 	retryCount      int
 }
@@ -48,9 +52,13 @@ func NewHTTPClient(c *Config) *HttpClient {
 		KeepAlive: time.Duration(c.KeepAlive),
 	}
 	transport := &xhttp.Transport{
-		DialContext:     dialer.DialContext,
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		DialContext:         dialer.DialContext,
+		MaxConnsPerHost:     c.MaxConns,
+		MaxIdleConnsPerHost: c.MaxIdle,
+		IdleConnTimeout:     time.Duration(c.KeepAlive),
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
 	}
+	_ = http2.ConfigureTransport(transport)
 	bo := backoff.NewConstantBackoff(c.BackoffInterval)
 	return &HttpClient{
 		conf: c,

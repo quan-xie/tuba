@@ -26,8 +26,8 @@ func init() {
 
 func TestHttpClient_Get(t *testing.T) {
 	var res interface{}
-	client.SetRetryCount(2)
-	err := client.Get(context.Background(), "http://httpbin.org/get", nil, &res)
+	client.SetRetryCount(5)
+	err := client.Get(context.Background(), "https://http2.pro/api/v1", nil, &res)
 	if err != nil {
 		t.Log(err)
 		return
@@ -39,7 +39,7 @@ func TestHttpClient_Get(t *testing.T) {
 func TestHttpClient_Post(t *testing.T) {
 	var res interface{}
 	param := make(map[string]interface{})
-	err := client.Post(context.Background(), "http://httpbin.org/post", MIMEJSON, nil, param, &res)
+	err := client.Post(context.Background(), "https://http2.pro/api/v1", MIMEJSON, nil, param, &res)
 	if err != nil {
 		t.Log(err)
 	}

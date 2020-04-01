@@ -17,6 +17,7 @@ type Config struct {
 
 func Init(c *Config) {
 	var err error
+	defer logger.Sync()
 	cfg := zap.NewProductionConfig()
 	cfg.OutputPaths = c.OutputPaths
 	cfg.ErrorOutputPaths=c.OutputPaths
@@ -29,7 +30,6 @@ func Init(c *Config) {
 	if err != nil {
 		return
 	}
-	defer logger.Sync()
 }
 
 func TimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
