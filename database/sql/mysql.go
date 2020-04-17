@@ -5,11 +5,7 @@ import (
 	"github.com/quan-xie/tuba/util/xtime"
 )
 
-const ()
-
 type Config struct {
-	DSNConfig    *DSNConfig //
-	DSNConfig    []*DSNConfigs
 	DSN          string         // write data source name.
 	ReadDSN      []string       // read data source name.
 	Active       int            // pool
@@ -21,7 +17,7 @@ type Config struct {
 }
 
 // NewMySQL new db instance .
-func NewMySQL(c *Config) (db *DataBase) {
+func NewMySQL(c *Config) (db *DB) {
 	if c.QueryTimeout == 0 {
 		log.Warn("NewMySQL QueryTimeout is c.QueryTimeout=%d", c.QueryTimeout)
 		c.QueryTimeout = 20000
@@ -34,5 +30,10 @@ func NewMySQL(c *Config) (db *DataBase) {
 		log.Warn("NewMySQL TranTimeout is c.TranTimeout=%d", c.TranTimeout)
 		c.TranTimeout = 2000
 	}
-	return db
+	db, err := Open(c)
+	if err != nil {
+		log.Error("open mysql error(%v)", err)
+		panic(err)
+	}
+	return
 }
