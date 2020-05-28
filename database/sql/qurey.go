@@ -8,8 +8,8 @@ import (
 // Qurey is wrap mysql qurey
 func (db *DB) Qurey(c context.Context, query string, args ...interface{}) (rows *sql.Rows, err error) {
 	idx := db.readIndex()
-	for i := range db.read {
-		if rows, err = db.read[(idx+i)%len(db.read)].QueryContext(c, query, args); err != nil {
+	if len(db.read) > idx {
+		if rows, err = db.read[(idx)%len(db.read)].QueryContext(c, query, args); err != nil {
 			return
 		}
 	}
@@ -19,9 +19,8 @@ func (db *DB) Qurey(c context.Context, query string, args ...interface{}) (rows 
 // QureyRow is wrap mysql qureyrow
 func (db *DB) QureyRow(c context.Context, query string, args ...interface{}) (row *sql.Row) {
 	idx := db.readIndex()
-	for i := range db.read {
-		row = db.read[(idx+i)%len(db.read)].QueryRowContext(c, query, args)
+	if len(db.read) > idx {
+		return db.read[(idx)%len(db.read)].QueryRowContext(c, query, args)
 	}
-	row = db.write.QueryRowContext(c, query, args)
-	return
+	return db.write.QueryRowContext(c, query, args)
 }
