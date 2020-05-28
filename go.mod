@@ -5,6 +5,7 @@ go 1.12
 require (
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/gin-gonic/gin v1.4.0
+	github.com/go-sql-driver/mysql v1.5.0
 	github.com/golang/protobuf v1.3.2 // indirect
 	github.com/jonboulle/clockwork v0.1.0 // indirect
 	github.com/json-iterator/go v1.1.7 // indirect

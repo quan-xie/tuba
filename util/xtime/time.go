@@ -1,6 +1,7 @@
 package xtime
 
 import (
+	"context"
 	"database/sql/driver"
 	"strconv"
 	"time"
@@ -40,4 +41,15 @@ func (d *Duration) UnmarshalText(text []byte) error {
 		*d = Duration(tmp)
 	}
 	return err
+}
+
+// and return new timeout\context\CancelFunc.
+func (d Duration) Shrink(c context.Context) (Duration, context.Context, context.CancelFunc) {
+	if deadline, ok := c.Deadline(); ok {
+		if ctimeout := time.Until(deadline); ctimeout < time.Duration(d) {
+			return Duration(ctimeout), c, func() {}
+		}
+	}
+	ctx, cancel := context.WithTimeout(c, time.Duration(d))
+	return d, ctx, cancel
 }
