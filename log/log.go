@@ -30,33 +30,32 @@ func Init(c *Config) {
 		StacktraceKey: "stacktrace",
 		LineEnding:    zapcore.DefaultLineEnding,
 		EncodeLevel:   zapcore.LowercaseLevelEncoder,
-		EncodeTime: func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
-			enc.AppendString(t.Format("2006-01-02 15:04:05"))
-		},
+		//EncodeTime:     TimeEncoder, 默认使用时间戳，如果需要自定义格式可以修改TimeEncoder
+		CallerKey:      "file",
 		EncodeDuration: zapcore.SecondsDurationEncoder,
 		EncodeCaller:   zapcore.FullCallerEncoder,
 		EncodeName:     zapcore.FullNameEncoder,
 	})
 	highPriority := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= zapcore.ErrorLevel
+		return lvl == zapcore.ErrorLevel
 	})
 	lowPriority := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= zapcore.DebugLevel
+		return lvl == zapcore.DebugLevel
 	})
 	debugLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= zapcore.DebugLevel
+		return lvl == zapcore.DebugLevel
 	})
 	infoLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= zapcore.InfoLevel
+		return lvl == zapcore.InfoLevel
 	})
 	warnLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= zapcore.WarnLevel
+		return lvl == zapcore.WarnLevel
 	})
 	errorLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= zapcore.ErrorLevel
+		return lvl == zapcore.ErrorLevel
 	})
 	fatalLevel := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= zapcore.FatalLevel
+		return lvl == zapcore.FatalLevel
 	})
 	var cores []zapcore.Core
 	consoleDebugging := zapcore.Lock(os.Stdout)
@@ -70,7 +69,15 @@ func Init(c *Config) {
 	cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_warn.log")), warnLevel))
 	cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_error.log")), errorLevel))
 	cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_fatal.log")), fatalLevel))
-	logger = zap.New(zapcore.NewTee(cores...), zap.AddCaller()).Sugar()
+	// 开启开发模式，堆栈跟踪
+	caller := zap.AddCaller()
+	// 开启文件及行号
+	development := zap.Development()
+	logger = zap.New(
+		zapcore.NewTee(cores...),
+		caller,
+		development,
+	).Sugar()
 }
 
 // TimeEncoder time encoder .
@@ -114,7 +121,7 @@ func Warnf(msg string, args ...interface{}) {
 }
 
 // Warn log
-func Warn(msg string, args ...interface{}) {
+func Warn(args ...interface{}) {
 	logger.Warn(args...)
 }
 
