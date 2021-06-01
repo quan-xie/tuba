@@ -3,6 +3,7 @@ module github.com/quan-xie/tuba
 go 1.12
 
 require (
+	github.com/elastic/go-elasticsearch/v8 v8.0.0-20210531084204-f01628963386
 	github.com/fastly/go-utils v0.0.0-20180712184237-d95a45783239 // indirect
 	github.com/go-sql-driver/mysql v1.5.0
 	github.com/golang/protobuf v1.3.2 // indirect
