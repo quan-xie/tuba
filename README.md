@@ -14,7 +14,7 @@ go get -u github.com/quan-xie/tuba
 - [x] Rerty 
 - [x] HttpClient  
 - [x] Logger (基于Uber Zap框架)
-- [x] Database (mysql,momgo) 
+- [x] Database (mysql,mongo) 
 - [ ] Auth 
 - [ ] Cache  (memcache、redis)
 - [ ] RPC 
