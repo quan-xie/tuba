@@ -3,17 +3,16 @@ package log
 import (
 	"errors"
 	"io"
-	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
+	"unsafe"
 
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
-
-var logger *zap.SugaredLogger
 
 // Config is log config .
 type Config struct {
@@ -29,44 +28,8 @@ func Init(c *Config) {
 		err := errors.New("日志路径或应用名称为空")
 		panic(err)
 	}
-	encoder := zapcore.NewJSONEncoder(zapcore.EncoderConfig{
-		TimeKey:        "event_time",
-		LevelKey:       "level",
-		NameKey:        "logger",
-		MessageKey:     "msg",
-		StacktraceKey:  "stacktrace",
-		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     TimeEncoder,
-		EncodeDuration: zapcore.SecondsDurationEncoder,
-		EncodeCaller:   zapcore.FullCallerEncoder,
-		EncodeName:     zapcore.FullNameEncoder,
-	})
-	var highPriority, lowPriority, debugLevel, infoLevel, warnLevel, errorLevel, fatalLevel zap.LevelEnablerFunc
-	highPriority = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= zapcore.InfoLevel
-	})
-	lowPriority = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= zapcore.DebugLevel
-	})
-	debugLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl == zapcore.DebugLevel
-	})
-	infoLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl == zapcore.InfoLevel
-	})
-	warnLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl == zapcore.WarnLevel
-	})
-	errorLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl == zapcore.ErrorLevel
-	})
-	fatalLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl == zapcore.FatalLevel
-	})
+
 	var cores []zapcore.Core
-	consoleDebugging := zapcore.Lock(os.Stdout)
-	consoleEncoder := zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())
 	if c.Debug {
 		cores = append(cores, zapcore.NewCore(consoleEncoder, consoleDebugging, lowPriority))
 	} else {
@@ -87,16 +50,12 @@ func Init(c *Config) {
 			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+".log")), highPriority))
 		}
 	}
-	// 开启开发模式，堆栈跟踪
-	caller := zap.AddCaller()
-	// 开启文件及行号
-	development := zap.Development()
-	logger = zap.New(
+	setLogger(zap.New(
 		zapcore.NewTee(cores...),
-		caller,
-		development,
-		zap.AddStacktrace(highPriority),
-	).Sugar()
+		zap.AddCaller(),
+		zap.Development(),
+		zap.AddCallerSkip(1),
+	).Sugar())
 }
 
 // TimeEncoder time encoder .
@@ -106,52 +65,52 @@ func TimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 
 // Debugf log
 func Debugf(msg string, args ...interface{}) {
-	logger.Debugf(msg, args...)
+	logger().Debugf(msg, args...)
 }
 
 // Debug log
 func Debug(args ...interface{}) {
-	logger.Debug(args...)
+	logger().Debug(args...)
 }
 
 // Infof log
 func Infof(msg string, args ...interface{}) {
-	logger.Infof(msg, args...)
+	logger().Infof(msg, args...)
 }
 
 // Info log
 func Info(args ...interface{}) {
-	logger.Info(args...)
+	logger().Info(args...)
 }
 
 // Errorf log
 func Errorf(msg string, args ...interface{}) {
-	logger.Errorf(msg, args...)
+	logger().Errorf(msg, args...)
 }
 
 // Error log
 func Error(args ...interface{}) {
-	logger.Error(args...)
+	logger().Error(args...)
 }
 
 // Warnf log
 func Warnf(msg string, args ...interface{}) {
-	logger.Warnf(msg, args...)
+	logger().Warnf(msg, args...)
 }
 
 // Warn log
 func Warn(args ...interface{}) {
-	logger.Warn(args...)
+	logger().Warn(args...)
 }
 
 // Fatalf send log fatalf
 func Fatalf(msg string, args ...interface{}) {
-	logger.Fatalf(msg, args...)
+	logger().Fatalf(msg, args...)
 }
 
 // Fatal send log fatal
 func Fatal(args ...interface{}) {
-	logger.Fatal(args...)
+	logger().Fatal(args...)
 }
 
 func getWriter(filename string) io.Writer {
@@ -166,3 +125,19 @@ func getWriter(filename string) io.Writer {
 	}
 	return hook
 }
+
+func logger() *zap.SugaredLogger {
+	return (*zap.SugaredLogger)(atomic.LoadPointer(&loggerImpl))
+}
+
+func setLogger(l *zap.SugaredLogger) {
+	atomic.StorePointer(&loggerImpl, unsafe.Pointer(l))
+}
+
+var loggerImpl unsafe.Pointer = unsafe.Pointer(
+	zap.New(zapcore.NewTee(
+		zapcore.NewCore(consoleEncoder, consoleDebugging, lowPriority)),
+		zap.AddCaller(),
+		zap.Development(),
+		zap.AddCallerSkip(1),
+	).Sugar())

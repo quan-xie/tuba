@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"go.opencensus.io/trace"
 	"golang.org/x/net/http2"
 
 	"github.com/pkg/errors"
@@ -82,18 +83,26 @@ func (c *HttpClient) SetRetrier(retrier retry.Retriable) {
 
 // Get makes a HTTP GET request to provided URL with context passed in
 func (c *HttpClient) Get(ctx context.Context, url string, headers xhttp.Header, res interface{}) (err error) {
+	ctx, span := trace.StartSpan(ctx, "httpclient Get")
+	defer span.End()
 	request, err := xhttp.NewRequest(xhttp.MethodGet, url, nil)
 	if err != nil {
 		return errors.Wrap(err, "GET - request creation failed")
 	}
 
 	request.Header = headers
-
+	ats := []trace.Attribute{
+		trace.StringAttribute("Get URL", url),
+	}
+	span.Annotate(ats, "GET Request")
+	span.AddAttributes(ats...)
 	return c.Do(ctx, request, res)
 }
 
 // Post makes a HTTP POST request to provided URL with context passed in
 func (c *HttpClient) Post(ctx context.Context, url, contentType string, headers xhttp.Header, param, res interface{}) (err error) {
+	ctx, span := trace.StartSpan(ctx, "httpclient Post")
+	defer span.End()
 	request, err := xhttp.NewRequest(xhttp.MethodPost, url, reqBody(contentType, param))
 	if err != nil {
 		return errors.Wrap(err, "POST - request creation failed")
@@ -103,12 +112,20 @@ func (c *HttpClient) Post(ctx context.Context, url, contentType string, headers 
 	}
 	headers.Set("Content-Type", contentType)
 	request.Header = headers
-
+	paramByte, _ := json.Marshal(param)
+	ats := []trace.Attribute{
+		trace.StringAttribute("POST URL", url),
+		trace.StringAttribute("POST PARAM ", string(paramByte)),
+	}
+	span.Annotate(ats, "POST Request")
+	span.AddAttributes(ats...)
 	return c.Do(ctx, request, res)
 }
 
 // Put makes a HTTP PUT request to provided URL with context passed in
 func (c *HttpClient) Put(ctx context.Context, url, contentType string, headers xhttp.Header, param, res interface{}) (err error) {
+	ctx, span := trace.StartSpan(ctx, "httpclient Put")
+	defer span.End()
 	request, err := xhttp.NewRequest(xhttp.MethodPut, url, reqBody(contentType, param))
 	if err != nil {
 		return errors.Wrap(err, "PUT - request creation failed")
@@ -119,12 +136,20 @@ func (c *HttpClient) Put(ctx context.Context, url, contentType string, headers x
 	}
 	headers.Set("Content-Type", contentType)
 	request.Header = headers
-
+	paramByte, _ := json.Marshal(param)
+	ats := []trace.Attribute{
+		trace.StringAttribute("PUT URL", url),
+		trace.StringAttribute("PUT PARAM ", string(paramByte)),
+	}
+	span.Annotate(ats, "PUT Request")
+	span.AddAttributes(ats...)
 	return c.Do(ctx, request, res)
 }
 
 // Patch makes a HTTP PATCH request to provided URL with context passed in
-func (c *HttpClient) Patch(ctx context.Context, url, contentType string, headers xhttp.Header, param, res interface{}) (err error) {
+func (c *HttpClient) PATCH(ctx context.Context, url, contentType string, headers xhttp.Header, param, res interface{}) (err error) {
+	ctx, span := trace.StartSpan(ctx, "httpclient Patch")
+	defer span.End()
 	request, err := xhttp.NewRequest(xhttp.MethodPatch, url, reqBody(contentType, param))
 	if err != nil {
 		return errors.Wrap(err, "PATCH - request creation failed")
@@ -135,12 +160,20 @@ func (c *HttpClient) Patch(ctx context.Context, url, contentType string, headers
 	}
 	headers.Set("Content-Type", contentType)
 	request.Header = headers
-
+	paramByte, _ := json.Marshal(param)
+	ats := []trace.Attribute{
+		trace.StringAttribute("PATCH URL", url),
+		trace.StringAttribute("PATCH PARAM ", string(paramByte)),
+	}
+	span.Annotate(ats, "PATCH Request")
+	span.AddAttributes(ats...)
 	return c.Do(ctx, request, res)
 }
 
 // Delete makes a HTTP DELETE request to provided URL with context passed in
 func (c *HttpClient) Delete(ctx context.Context, url, contentType string, headers xhttp.Header, param, res interface{}) (err error) {
+	ctx, span := trace.StartSpan(ctx, "httpclient Delete")
+	defer span.End()
 	request, err := xhttp.NewRequest(xhttp.MethodDelete, url, nil)
 	if err != nil {
 		return errors.Wrap(err, "DELETE - request creation failed")
@@ -151,7 +184,13 @@ func (c *HttpClient) Delete(ctx context.Context, url, contentType string, header
 	}
 	headers.Set("Content-Type", contentType)
 	request.Header = headers
-
+	paramByte, _ := json.Marshal(param)
+	ats := []trace.Attribute{
+		trace.StringAttribute("DELETE URL", url),
+		trace.StringAttribute("DELETE PARAM ", string(paramByte)),
+	}
+	span.Annotate(ats, "DELETE Request")
+	span.AddAttributes(ats...)
 	return c.Do(ctx, request, res)
 }
 
