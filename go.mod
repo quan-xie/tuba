@@ -3,23 +3,25 @@ module github.com/quan-xie/tuba
 go 1.12
 
 require (
+	contrib.go.opencensus.io/exporter/jaeger v0.2.1
+	contrib.go.opencensus.io/exporter/zipkin v0.1.2
 	github.com/elastic/go-elasticsearch/v8 v8.0.0-20210531084204-f01628963386
 	github.com/fastly/go-utils v0.0.0-20180712184237-d95a45783239 // indirect
 	github.com/go-sql-driver/mysql v1.5.0
-	github.com/golang/protobuf v1.3.2 // indirect
 	github.com/jehiah/go-strftime v0.0.0-20171201141054-1d33003b3869 // indirect
 	github.com/jonboulle/clockwork v0.1.0 // indirect
 	github.com/lestrrat-go/file-rotatelogs v2.3.0+incompatible
 	github.com/lestrrat-go/strftime v1.0.1 // indirect
+	github.com/openzipkin/zipkin-go v0.4.0
 	github.com/pkg/errors v0.9.1
 	github.com/tebeka/strftime v0.1.5 // indirect
 	go.mongodb.org/mongo-driver v1.5.2
+	go.opencensus.io v0.23.0
 	go.uber.org/atomic v1.4.0 // indirect
 	go.uber.org/multierr v1.1.0 // indirect
 	go.uber.org/zap v1.10.0
-	golang.org/x/net v0.0.0-20200202094626-16171245cfb2
-	golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a // indirect
-	google.golang.org/grpc v1.25.1
+	golang.org/x/net v0.0.0-20210917221730-978cfadd31cf
+	google.golang.org/grpc v1.41.0
 )
 
 replace (
