@@ -1,7 +1,6 @@
 package log
 
 import (
-	"errors"
 	"io"
 	"strconv"
 	"strings"
@@ -24,30 +23,28 @@ type Config struct {
 
 // Init initialize a log config .
 func Init(c *Config) {
-	if c.LogPath == "" || c.AppName == "" {
-		err := errors.New("日志路径或应用名称为空")
-		panic(err)
-	}
 
 	var cores []zapcore.Core
 	if c.Debug {
-		cores = append(cores, zapcore.NewCore(consoleEncoder, consoleDebugging, lowPriority))
+		cores = append(cores, zapcore.NewCore(encoder, consoleDebugging, lowPriority))
 	} else {
-		cores = append(cores, zapcore.NewCore(consoleEncoder, consoleDebugging, highPriority))
+		cores = append(cores, zapcore.NewCore(encoder, consoleDebugging, highPriority))
 	}
-	if c.MultiFile {
-		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_info.log")), infoLevel))
-		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_warn.log")), warnLevel))
-		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_error.log")), errorLevel))
-		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_fatal.log")), fatalLevel))
-		if c.Debug {
-			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_debug.log")), debugLevel))
-		}
-	} else {
-		if c.Debug {
-			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+".log")), lowPriority))
+	if c.LogPath != "" {
+		if c.MultiFile {
+			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_info.log")), infoLevel))
+			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_warn.log")), warnLevel))
+			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_error.log")), errorLevel))
+			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_fatal.log")), fatalLevel))
+			if c.Debug {
+				cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_debug.log")), debugLevel))
+			}
 		} else {
-			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+".log")), highPriority))
+			if c.Debug {
+				cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+".log")), lowPriority))
+			} else {
+				cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+".log")), highPriority))
+			}
 		}
 	}
 	setLogger(zap.New(
@@ -55,6 +52,7 @@ func Init(c *Config) {
 		zap.AddCaller(),
 		zap.Development(),
 		zap.AddCallerSkip(1),
+		zap.AddStacktrace(zapcore.WarnLevel),
 	).Sugar())
 }
 
@@ -136,7 +134,7 @@ func setLogger(l *zap.SugaredLogger) {
 
 var loggerImpl unsafe.Pointer = unsafe.Pointer(
 	zap.New(zapcore.NewTee(
-		zapcore.NewCore(consoleEncoder, consoleDebugging, lowPriority)),
+		zapcore.NewCore(encoder, consoleDebugging, lowPriority)),
 		zap.AddCaller(),
 		zap.Development(),
 		zap.AddCallerSkip(1),
