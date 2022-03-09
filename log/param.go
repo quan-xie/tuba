@@ -9,7 +9,6 @@ import (
 
 var (
 	consoleDebugging = zapcore.Lock(os.Stdout)
-	consoleEncoder   = zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())
 	encoder          = zapcore.NewJSONEncoder(zapcore.EncoderConfig{
 		TimeKey:        "event_time",
 		LevelKey:       "level",

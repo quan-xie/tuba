@@ -31,9 +31,9 @@ func Init(c *Config) {
 
 	var cores []zapcore.Core
 	if c.Debug {
-		cores = append(cores, zapcore.NewCore(consoleEncoder, consoleDebugging, lowPriority))
+		cores = append(cores, zapcore.NewCore(encoder, consoleDebugging, lowPriority))
 	} else {
-		cores = append(cores, zapcore.NewCore(consoleEncoder, consoleDebugging, highPriority))
+		cores = append(cores, zapcore.NewCore(encoder, consoleDebugging, highPriority))
 	}
 	if c.MultiFile {
 		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_info.log")), infoLevel))
@@ -55,6 +55,7 @@ func Init(c *Config) {
 		zap.AddCaller(),
 		zap.Development(),
 		zap.AddCallerSkip(1),
+		zap.AddStacktrace(zapcore.WarnLevel),
 	).Sugar())
 }
 
@@ -136,7 +137,7 @@ func setLogger(l *zap.SugaredLogger) {
 
 var loggerImpl unsafe.Pointer = unsafe.Pointer(
 	zap.New(zapcore.NewTee(
-		zapcore.NewCore(consoleEncoder, consoleDebugging, lowPriority)),
+		zapcore.NewCore(encoder, consoleDebugging, lowPriority)),
 		zap.AddCaller(),
 		zap.Development(),
 		zap.AddCallerSkip(1),
