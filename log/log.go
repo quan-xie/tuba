@@ -1,7 +1,6 @@
 package log
 
 import (
-	"errors"
 	"io"
 	"strconv"
 	"strings"
@@ -24,10 +23,6 @@ type Config struct {
 
 // Init initialize a log config .
 func Init(c *Config) {
-	if c.LogPath == "" || c.AppName == "" {
-		err := errors.New("日志路径或应用名称为空")
-		panic(err)
-	}
 
 	var cores []zapcore.Core
 	if c.Debug {
@@ -35,19 +30,21 @@ func Init(c *Config) {
 	} else {
 		cores = append(cores, zapcore.NewCore(encoder, consoleDebugging, highPriority))
 	}
-	if c.MultiFile {
-		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_info.log")), infoLevel))
-		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_warn.log")), warnLevel))
-		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_error.log")), errorLevel))
-		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_fatal.log")), fatalLevel))
-		if c.Debug {
-			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_debug.log")), debugLevel))
-		}
-	} else {
-		if c.Debug {
-			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+".log")), lowPriority))
+	if c.LogPath != "" {
+		if c.MultiFile {
+			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_info.log")), infoLevel))
+			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_warn.log")), warnLevel))
+			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_error.log")), errorLevel))
+			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_fatal.log")), fatalLevel))
+			if c.Debug {
+				cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+"_debug.log")), debugLevel))
+			}
 		} else {
-			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+".log")), highPriority))
+			if c.Debug {
+				cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+".log")), lowPriority))
+			} else {
+				cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(getWriter(c.LogPath+c.AppName+".log")), highPriority))
+			}
 		}
 	}
 	setLogger(zap.New(

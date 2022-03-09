@@ -6,7 +6,7 @@ import (
 
 func init() {
 	cfg := &Config{
-		LogPath: "/Users/xiequan/data/logs/",
+		// LogPath: "/Users/xiequan/data/logs/",
 		AppName: "test",
 		Debug:   false,
 	}
