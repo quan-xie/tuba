@@ -40,8 +40,6 @@ type Config struct {
 type HttpClient struct {
 	conf       *Config
 	client     *xhttp.Client
-	dialer     *net.Dialer
-	transport  *xhttp.Transport
 	retryCount int
 	retrier    retry.Retriable
 }
@@ -217,10 +215,8 @@ func (c *HttpClient) request(ctx context.Context, req *xhttp.Request, res interf
 	defer cancel()
 	response, err = c.client.Do(req.WithContext(ctx))
 	if err != nil {
-		select {
-		case <-ctx.Done():
-			err = ctx.Err()
-		}
+		<-ctx.Done()
+		err = ctx.Err()
 		return
 	}
 	defer response.Body.Close()
