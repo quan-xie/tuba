@@ -1,14 +1,16 @@
 package grpc
 
 import (
-	"github.com/pkg/errors"
-	"github.com/quan-xie/tuba/util/xtime"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/reflection"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
+	"github.com/quan-xie/tuba/log"
+	"github.com/quan-xie/tuba/util/xtime"
+	xgprc "google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/reflection"
 )
 
 type ServerConfig struct {
@@ -27,16 +29,16 @@ type Server struct {
 	conf  *ServerConfig
 	mutex sync.RWMutex
 
-	server      *grpc.Server
-	interceptor []grpc.UnaryServerInterceptor
+	server      *xgprc.Server
+	interceptor []xgprc.UnaryServerInterceptor
 }
 
-func NewServer(c *ServerConfig, opts ...grpc.ServerOption) (s *Server, err error) {
+func NewServer(c *ServerConfig, opts ...xgprc.ServerOption) (s *Server, err error) {
 	s = &Server{}
 	if err := s.configuration(c); err != nil {
 		panic("grpc config error")
 	}
-	kp := grpc.KeepaliveParams(keepalive.ServerParameters{
+	kp := xgprc.KeepaliveParams(keepalive.ServerParameters{
 		MaxConnectionIdle:     0,
 		MaxConnectionAge:      0,
 		MaxConnectionAgeGrace: 0,
@@ -44,21 +46,33 @@ func NewServer(c *ServerConfig, opts ...grpc.ServerOption) (s *Server, err error
 		Timeout:               0,
 	})
 	opts = append(opts, kp)
-	s.server = grpc.NewServer(opts...)
+	s.server = xgprc.NewServer(opts...)
 	return
 }
 
-func (s *Server) Start() (err error) {
-	listener, err := net.Listen("tcp", s.conf.Addr)
+func (s *Server) Start() {
+	var err error
+	l, err := net.Listen("tcp", s.conf.Addr)
 	if err != nil {
 		err = errors.WithStack(err)
+		log.Fatalf("failed to net Listen: %v", err)
 		return
 	}
 	reflection.Register(s.server)
-	return s.Serve(listener)
+	go func() {
+		log.Infof("grpc server succeed listening at %v", l.Addr())
+		if err := s.server.Serve(l); err != nil {
+			err = errors.WithStack(err)
+			log.Fatalf("failed to serve: %v", err)
+		}
+	}()
 }
 
-func (s *Server) Use(interceptors ...grpc.UnaryServerInterceptor) *Server {
+func (s *Server) Stop() {
+	s.server.Stop()
+}
+
+func (s *Server) Use(interceptors ...xgprc.UnaryServerInterceptor) *Server {
 	s.interceptor = append(s.interceptor, interceptors...)
 	return s
 }
@@ -67,7 +81,7 @@ func (s *Server) Serve(lis net.Listener) error {
 	return s.server.Serve(lis)
 }
 
-func (s *Server) Server() *grpc.Server {
+func (s *Server) Server() *xgprc.Server {
 	return s.server
 }
 
