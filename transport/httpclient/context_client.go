@@ -40,8 +40,6 @@ type Config struct {
 type HttpClient struct {
 	conf       *Config
 	client     *xhttp.Client
-	dialer     *net.Dialer
-	transport  *xhttp.Transport
 	retryCount int
 	retrier    retry.Retriable
 }

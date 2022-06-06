@@ -27,8 +27,7 @@ func init() {
 }
 
 func TestDatabase(t *testing.T) {
-	var err error
-	err = client.Ping(context.TODO(), nil)
+	err := client.Ping(context.TODO(), nil)
 	if err != nil {
 		fmt.Println(err)
 		return

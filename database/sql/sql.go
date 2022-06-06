@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	_family          = "sql_client"
-	_slowLogDuration = time.Millisecond * 250
+// _family          = "sql_client"
+// _slowLogDuration = time.Millisecond * 250
 )
 
 var (
