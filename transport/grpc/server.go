@@ -39,11 +39,11 @@ func NewServer(c *ServerConfig, opts ...xgprc.ServerOption) (s *Server, err erro
 		panic("grpc config error")
 	}
 	kp := xgprc.KeepaliveParams(keepalive.ServerParameters{
-		MaxConnectionIdle:     0,
-		MaxConnectionAge:      0,
-		MaxConnectionAgeGrace: 0,
-		Time:                  0,
-		Timeout:               0,
+		MaxConnectionIdle:     15 * time.Second, // If a client is idle for 15 seconds, send a GOAWAY
+		MaxConnectionAge:      30 * time.Second, // If any connection is alive for more than 30 seconds, send a GOAWAY
+		MaxConnectionAgeGrace: 5 * time.Second,  // Allow 5 seconds for pending RPCs to complete before forcibly closing connections
+		Time:                  5 * time.Second,  // Ping the client if it is idle for 5 seconds to ensure the connection is still active
+		Timeout:               1 * time.Second,  // Wait 1 second for the ping ack before assuming the connection is dead
 	})
 	opts = append(opts, kp)
 	s.server = xgprc.NewServer(opts...)
