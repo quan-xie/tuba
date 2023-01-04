@@ -16,7 +16,7 @@ go get -u github.com/quan-xie/tuba
 - [x] Logger (基于Uber Zap框架)
 - [x] Database (mysql,mongo,elastic) 
 - [x] Traces (支持zipkin、jagger) 
+- [x] RPC (GRPC With K8s headless)
 - [ ] Auth 
 - [ ] Cache  (memcache,redis)
-- [ ] RPC 
 - [ ] Service Discovery
