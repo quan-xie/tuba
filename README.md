@@ -17,6 +17,7 @@ go get -u github.com/quan-xie/tuba
 - [x] Database (mysql,mongo,elastic) 
 - [x] Traces (支持zipkin、jagger) 
 - [x] RPC (GRPC With K8s headless)
+- [x] Ecode (Customize Error code)
 - [ ] Auth 
 - [ ] Cache  (memcache,redis)
 - [ ] Service Discovery
