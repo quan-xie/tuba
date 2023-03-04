@@ -9,6 +9,8 @@ import (
 	"github.com/quan-xie/tuba/log"
 	"github.com/quan-xie/tuba/util/xtime"
 	xgprc "google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
@@ -29,8 +31,9 @@ type Server struct {
 	conf  *ServerConfig
 	mutex sync.RWMutex
 
-	server      *xgprc.Server
-	interceptor []xgprc.UnaryServerInterceptor
+	server       *xgprc.Server
+	healthServer *health.Server
+	interceptor  []xgprc.UnaryServerInterceptor
 }
 
 func NewServer(c *ServerConfig, opts ...xgprc.ServerOption) (s *Server, err error) {
@@ -39,13 +42,21 @@ func NewServer(c *ServerConfig, opts ...xgprc.ServerOption) (s *Server, err erro
 		panic("grpc config error")
 	}
 	kp := xgprc.KeepaliveParams(keepalive.ServerParameters{
-		MaxConnectionIdle:     0,
-		MaxConnectionAge:      0,
-		MaxConnectionAgeGrace: 0,
-		Time:                  0,
-		Timeout:               0,
+		MaxConnectionIdle:     15 * time.Second, // If a client is idle for 15 seconds, send a GOAWAY
+		MaxConnectionAge:      30 * time.Second, // If any connection is alive for more than 30 seconds, send a GOAWAY
+		MaxConnectionAgeGrace: 5 * time.Second,  // Allow 5 seconds for pending RPCs to complete before forcibly closing connections
+		Time:                  5 * time.Second,  // Ping the client if it is idle for 5 seconds to ensure the connection is still active
+		Timeout:               1 * time.Second,  // Wait 1 second for the ping ack before assuming the connection is dead
 	})
 	opts = append(opts, kp)
+	kaep := xgprc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+		MinTime:             5 * time.Second, // If a client pings more than once every 5 seconds, terminate the connection
+		PermitWithoutStream: true,            // Allow pings even when there are no active streams
+	})
+	opts = append(opts, kaep)
+	s.server = xgprc.NewServer(opts...)
+	s.healthServer = health.NewServer()
+	healthpb.RegisterHealthServer(s.server, s.healthServer)
 	s.server = xgprc.NewServer(opts...)
 	return
 }
@@ -69,7 +80,7 @@ func (s *Server) Start() {
 }
 
 func (s *Server) Stop() {
-	s.server.Stop()
+	s.server.GracefulStop()
 }
 
 func (s *Server) Use(interceptors ...xgprc.UnaryServerInterceptor) *Server {
