@@ -57,7 +57,6 @@ func NewServer(c *ServerConfig, opts ...xgprc.ServerOption) (s *Server, err erro
 	s.server = xgprc.NewServer(opts...)
 	s.healthServer = health.NewServer()
 	healthpb.RegisterHealthServer(s.server, s.healthServer)
-	s.server = xgprc.NewServer(opts...)
 	return
 }
 
@@ -66,7 +65,7 @@ func (s *Server) Start() {
 	l, err := net.Listen("tcp", s.conf.Addr)
 	if err != nil {
 		err = errors.WithStack(err)
-		log.Fatalf("failed to net Listen: %v", err)
+		log.Errorf("failed to net Listen: %v", err)
 		return
 	}
 	reflection.Register(s.server)
@@ -74,7 +73,7 @@ func (s *Server) Start() {
 		log.Infof("grpc server succeed listening at %v", l.Addr())
 		if err := s.server.Serve(l); err != nil {
 			err = errors.WithStack(err)
-			log.Fatalf("failed to serve: %v", err)
+			log.Errorf("failed to serve: %v", err)
 		}
 	}()
 }
