@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/quan-xie/tuba/log"
 	"github.com/quan-xie/tuba/util/xtime"
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
-	"go.opencensus.io/trace"
 )
 
 type RedisStorage struct {
@@ -28,6 +29,7 @@ type Config struct {
 	Dial         xtime.Duration `json:"dial"`
 	KeepAlive    xtime.Duration `json:"keep_alive"`
 	Cluster      bool           `json:"cluster"`
+	Trace        bool           `json:"trace"`
 }
 
 func CreateRedisStorage(option *Config) (*RedisStorage, error) {
@@ -56,6 +58,11 @@ func CreateRedisStorage(option *Config) (*RedisStorage, error) {
 		}
 
 		client := redis.NewClusterClient(o)
+		if option.Trace {
+			if err := redisotel.InstrumentTracing(client); err != nil {
+				log.Errorf("redisotel.InstrumentTracing error %v", err)
+			}
+		}
 		return &RedisStorage{
 			clusterClient: client,
 			config:        option,
@@ -87,7 +94,11 @@ func CreateRedisStorage(option *Config) (*RedisStorage, error) {
 		if err != nil {
 			return nil, err
 		}
-
+		if option.Trace {
+			if err := redisotel.InstrumentTracing(client); err != nil {
+				log.Errorf("redisotel.InstrumentTracing error %v", err)
+			}
+		}
 		return &RedisStorage{
 			client: client,
 			config: option,
@@ -103,72 +114,32 @@ func (rs *RedisStorage) ClusterDB() *redis.ClusterClient {
 	return rs.clusterClient
 }
 
-func (rs *RedisStorage) ZRevRange(ctx context.Context, key string, start, stop int64) (cmd *redis.StringSliceCmd) {
-	ctx, span := trace.StartSpan(ctx, "ZRevRange")
-	defer span.End()
+func (rs *RedisStorage) ZRevRange(ctx context.Context, key string, start, stop int64) *redis.StringSliceCmd {
 	if rs.config.Cluster {
-		cmd = rs.clusterClient.ZRevRange(ctx, key, start, stop)
-	} else {
-		cmd = rs.client.ZRevRange(ctx, key, start, stop)
+		return rs.clusterClient.ZRevRange(ctx, key, start, stop)
 	}
-	if cmd.Err() != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeUnknown,
-			Message: cmd.Err().Error(),
-		})
-	}
-	return
+	return rs.client.ZRevRange(ctx, key, start, stop)
 }
 
-func (rs *RedisStorage) ZRevRangeWithScores(ctx context.Context, key string, start, stop int64) (cmd *redis.ZSliceCmd) {
-	ctx, span := trace.StartSpan(ctx, "ZRevRangeWithScores")
-	defer span.End()
+func (rs *RedisStorage) ZRevRangeWithScores(ctx context.Context, key string, start, stop int64) *redis.ZSliceCmd {
 	if rs.config.Cluster {
-		cmd = rs.clusterClient.ZRevRangeWithScores(ctx, key, start, stop)
-	} else {
-		cmd = rs.client.ZRevRangeWithScores(ctx, key, start, stop)
+		return rs.clusterClient.ZRevRangeWithScores(ctx, key, start, stop)
 	}
-	if cmd.Err() != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeUnknown,
-			Message: cmd.Err().Error(),
-		})
-	}
-	return
+	return rs.client.ZRevRangeWithScores(ctx, key, start, stop)
 }
 
-func (rs *RedisStorage) ZRevRangeByScoreWithScores(ctx context.Context, key string, opt *redis.ZRangeBy) (cmd *redis.ZSliceCmd) {
-	ctx, span := trace.StartSpan(ctx, "ZRevRangeByScoreWithScores")
-	defer span.End()
+func (rs *RedisStorage) ZRevRangeByScoreWithScores(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.ZSliceCmd {
 	if rs.config.Cluster {
-		cmd = rs.clusterClient.ZRevRangeByScoreWithScores(ctx, key, opt)
-	} else {
-		cmd = rs.client.ZRevRangeByScoreWithScores(ctx, key, opt)
+		return rs.clusterClient.ZRevRangeByScoreWithScores(ctx, key, opt)
 	}
-	if cmd.Err() != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeUnknown,
-			Message: cmd.Err().Error(),
-		})
-	}
-	return
+	return rs.client.ZRevRangeByScoreWithScores(ctx, key, opt)
 }
 
-func (rs *RedisStorage) ZRangeByScoreWithScores(ctx context.Context, key string, opt *redis.ZRangeBy) (cmd *redis.ZSliceCmd) {
-	ctx, span := trace.StartSpan(ctx, "ZRangeByScoreWithScores")
-	defer span.End()
+func (rs *RedisStorage) ZRangeByScoreWithScores(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.ZSliceCmd {
 	if rs.config.Cluster {
-		cmd = rs.clusterClient.ZRangeByScoreWithScores(ctx, key, opt)
-	} else {
-		cmd = rs.client.ZRangeByScoreWithScores(ctx, key, opt)
+		return rs.clusterClient.ZRangeByScoreWithScores(ctx, key, opt)
 	}
-	if cmd.Err() != nil {
-		span.SetStatus(trace.Status{
-			Code:    trace.StatusCodeUnknown,
-			Message: cmd.Err().Error(),
-		})
-	}
-	return
+	return rs.client.ZRangeByScoreWithScores(ctx, key, opt)
 }
 
 func (rs *RedisStorage) ZScore(ctx context.Context, key, member string) *redis.FloatCmd {
