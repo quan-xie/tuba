@@ -27,7 +27,6 @@ type Config struct {
 	Dial         xtime.Duration `json:"dial"`
 	KeepAlive    xtime.Duration `json:"keep_alive"`
 	Cluster      bool           `json:"cluster"`
-	Tracing      bool           `json:"tracing"`
 }
 
 func CreateRedisStorage(option *Config) (*RedisStorage, error) {
