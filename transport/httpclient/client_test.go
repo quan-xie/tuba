@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/quan-xie/tuba/util/xtime"
 )
 
@@ -24,6 +25,7 @@ func init() {
 	client = NewHTTPClient(cfg)
 }
 
+// go test -v -test.run TestHttpClient_Get
 func TestHttpClient_Get(t *testing.T) {
 	var res interface{}
 	client.SetRetryCount(5)
@@ -32,16 +34,20 @@ func TestHttpClient_Get(t *testing.T) {
 		t.Log(err)
 		return
 	}
-	t.Log(res)
-
+	resStr, _ := sonic.MarshalString(&res)
+	t.Log(resStr)
 }
 
+// go test -v -test.run TestHttpClient_Post
 func TestHttpClient_Post(t *testing.T) {
 	var res interface{}
 	param := make(map[string]interface{})
+	param["xie"] = "quan"
 	err := client.Post(context.Background(), "https://http2.pro/api/v1", MIMEJSON, nil, param, &res)
 	if err != nil {
 		t.Log(err)
+		return
 	}
-	t.Log(res)
+	resStr, _ := sonic.MarshalString(&res)
+	t.Log(resStr)
 }

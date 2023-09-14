@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	xhttp "net/http"
 	"strings"
 	"time"
+
+	"github.com/bytedance/sonic"
 
 	"go.opencensus.io/trace"
 	"golang.org/x/net/http2"
@@ -110,7 +111,7 @@ func (c *HttpClient) Post(ctx context.Context, url, contentType string, headers 
 	}
 	headers.Set("Content-Type", contentType)
 	request.Header = headers
-	paramByte, _ := json.Marshal(param)
+	paramByte, _ := sonic.Marshal(param)
 	ats := []trace.Attribute{
 		trace.StringAttribute("POST URL", url),
 		trace.StringAttribute("POST PARAM ", string(paramByte)),
@@ -134,7 +135,7 @@ func (c *HttpClient) Put(ctx context.Context, url, contentType string, headers x
 	}
 	headers.Set("Content-Type", contentType)
 	request.Header = headers
-	paramByte, _ := json.Marshal(param)
+	paramByte, _ := sonic.Marshal(param)
 	ats := []trace.Attribute{
 		trace.StringAttribute("PUT URL", url),
 		trace.StringAttribute("PUT PARAM ", string(paramByte)),
@@ -158,7 +159,7 @@ func (c *HttpClient) PATCH(ctx context.Context, url, contentType string, headers
 	}
 	headers.Set("Content-Type", contentType)
 	request.Header = headers
-	paramByte, _ := json.Marshal(param)
+	paramByte, _ := sonic.Marshal(param)
 	ats := []trace.Attribute{
 		trace.StringAttribute("PATCH URL", url),
 		trace.StringAttribute("PATCH PARAM ", string(paramByte)),
@@ -182,7 +183,7 @@ func (c *HttpClient) Delete(ctx context.Context, url, contentType string, header
 	}
 	headers.Set("Content-Type", contentType)
 	request.Header = headers
-	paramByte, _ := json.Marshal(param)
+	paramByte, _ := sonic.Marshal(param)
 	ats := []trace.Attribute{
 		trace.StringAttribute("DELETE URL", url),
 		trace.StringAttribute("DELETE PARAM ", string(paramByte)),
@@ -227,12 +228,11 @@ func (c *HttpClient) request(ctx context.Context, req *xhttp.Request, res interf
 	if bs, err = readAll(response.Body, minRead); err != nil {
 		return
 	}
-	err = json.Unmarshal(bs, &res)
+	err = sonic.Unmarshal(bs, &res)
 	return
 }
 
 func reqBody(contentType string, param interface{}) (body io.Reader) {
-	var err error
 	if contentType == MIMEPOSTForm {
 		enc, ok := param.(string)
 		if ok {
@@ -241,10 +241,7 @@ func reqBody(contentType string, param interface{}) (body io.Reader) {
 	}
 	if contentType == MIMEJSON {
 		buff := new(bytes.Buffer)
-		err = json.NewEncoder(buff).Encode(param)
-		if err != nil {
-			return
-		}
+		sonic.ConfigDefault.NewEncoder(buff).Encode(param)
 		body = buff
 	}
 	return
