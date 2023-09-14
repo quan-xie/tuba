@@ -127,6 +127,10 @@ github.com/lestrrat-go/strftime
 # github.com/mercari/go-circuitbreaker v0.0.2
 ## explicit; go 1.15
 github.com/mercari/go-circuitbreaker
+# github.com/opentracing/opentracing-go v1.1.0
+## explicit
+github.com/opentracing/opentracing-go
+github.com/opentracing/opentracing-go/log
 # github.com/openzipkin/zipkin-go v0.4.0
 ## explicit; go 1.14
 github.com/openzipkin/zipkin-go

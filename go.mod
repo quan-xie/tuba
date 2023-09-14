@@ -13,6 +13,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.0-rc.3
 	github.com/lestrrat-go/file-rotatelogs v2.3.0+incompatible
 	github.com/mercari/go-circuitbreaker v0.0.2
+	github.com/opentracing/opentracing-go v1.1.0
 	github.com/openzipkin/zipkin-go v0.4.0
 	github.com/pkg/errors v0.9.1
 	github.com/redis/go-redis/v9 v9.1.0
