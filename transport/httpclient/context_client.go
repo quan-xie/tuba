@@ -234,7 +234,6 @@ func (c *HttpClient) request(ctx context.Context, req *xhttp.Request, res interf
 }
 
 func reqBody(contentType string, param interface{}) (body io.Reader) {
-	var err error
 	if contentType == MIMEPOSTForm {
 		enc, ok := param.(string)
 		if ok {
@@ -243,8 +242,7 @@ func reqBody(contentType string, param interface{}) (body io.Reader) {
 	}
 	if contentType == MIMEJSON {
 		buff := new(bytes.Buffer)
-		err = sonic.ConfigDefault.NewEncoder(buff).Encode(param)
-		if err != nil {
+		if err := sonic.ConfigDefault.NewEncoder(buff).Encode(param); err != nil {
 			log.Errorf("reqBody error %v", err)
 			return
 		}
