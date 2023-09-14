@@ -8,12 +8,13 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/quan-xie/tuba/util/xtime"
-	xredis "github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9"
+	"go.opencensus.io/trace"
 )
 
 type RedisStorage struct {
-	client        *xredis.Client
-	clusterClient *xredis.ClusterClient
+	client        *redis.Client
+	clusterClient *redis.ClusterClient
 	config        *Config
 }
 
@@ -34,7 +35,7 @@ func CreateRedisStorage(option *Config) (*RedisStorage, error) {
 		return nil, errors.New("addrs cannot be empty")
 	}
 	if len(option.Addrs) > 1 || option.Cluster {
-		o := &xredis.ClusterOptions{
+		o := &redis.ClusterOptions{
 			Addrs:        option.Addrs,
 			ReadOnly:     true,
 			MinIdleConns: option.MinIdleConns,
@@ -54,13 +55,13 @@ func CreateRedisStorage(option *Config) (*RedisStorage, error) {
 			o.PoolSize = option.PoolSize
 		}
 
-		client := xredis.NewClusterClient(o)
+		client := redis.NewClusterClient(o)
 		return &RedisStorage{
 			clusterClient: client,
 			config:        option,
 		}, nil
 	} else {
-		o := &xredis.Options{
+		o := &redis.Options{
 			Addr:         option.Addrs[0],
 			Password:     option.Password,
 			DB:           option.DB,
@@ -81,11 +82,12 @@ func CreateRedisStorage(option *Config) (*RedisStorage, error) {
 		if option.PoolSize > 0 {
 			o.PoolSize = option.PoolSize
 		}
-		client := xredis.NewClient(o)
-		_, err := client.Ping(context.Background()).Result()
+		client := redis.NewClient(o).WithTimeout(time.Second)
+		_, err := client.Ping(context.TODO()).Result()
 		if err != nil {
 			return nil, err
 		}
+
 		return &RedisStorage{
 			client: client,
 			config: option,
@@ -93,267 +95,307 @@ func CreateRedisStorage(option *Config) (*RedisStorage, error) {
 	}
 }
 
-func (rs *RedisStorage) DB() *xredis.Client {
+func (rs *RedisStorage) DB() *redis.Client {
 	return rs.client
 }
 
-func (rs *RedisStorage) ClusterDB() *xredis.ClusterClient {
+func (rs *RedisStorage) ClusterDB() *redis.ClusterClient {
 	return rs.clusterClient
 }
 
-func (rs *RedisStorage) ZRevRange(ctx context.Context, key string, start, stop int64) *xredis.StringSliceCmd {
+func (rs *RedisStorage) ZRevRange(ctx context.Context, key string, start, stop int64) (cmd *redis.StringSliceCmd) {
+	ctx, span := trace.StartSpan(ctx, "ZRevRange")
+	defer span.End()
 	if rs.config.Cluster {
-		return rs.clusterClient.ZRevRange(ctx, key, start, stop)
+		cmd = rs.clusterClient.ZRevRange(ctx, key, start, stop)
+	} else {
+		cmd = rs.client.ZRevRange(ctx, key, start, stop)
 	}
-	return rs.client.ZRevRange(ctx, key, start, stop)
+	if cmd.Err() != nil {
+		span.SetStatus(trace.Status{
+			Code:    trace.StatusCodeUnknown,
+			Message: cmd.Err().Error(),
+		})
+	}
+	return
 }
 
-func (rs *RedisStorage) ZRevRangeWithScores(ctx context.Context, key string, start, stop int64) *xredis.ZSliceCmd {
+func (rs *RedisStorage) ZRevRangeWithScores(ctx context.Context, key string, start, stop int64) (cmd *redis.ZSliceCmd) {
+	ctx, span := trace.StartSpan(ctx, "ZRevRangeWithScores")
+	defer span.End()
 	if rs.config.Cluster {
-		return rs.clusterClient.ZRevRangeWithScores(ctx, key, start, stop)
+		cmd = rs.clusterClient.ZRevRangeWithScores(ctx, key, start, stop)
+	} else {
+		cmd = rs.client.ZRevRangeWithScores(ctx, key, start, stop)
 	}
-	return rs.client.ZRevRangeWithScores(ctx, key, start, stop)
+	if cmd.Err() != nil {
+		span.SetStatus(trace.Status{
+			Code:    trace.StatusCodeUnknown,
+			Message: cmd.Err().Error(),
+		})
+	}
+	return
 }
 
-func (rs *RedisStorage) ZRevRangeByScoreWithScores(ctx context.Context, key string, opt *xredis.ZRangeBy) *xredis.ZSliceCmd {
+func (rs *RedisStorage) ZRevRangeByScoreWithScores(ctx context.Context, key string, opt *redis.ZRangeBy) (cmd *redis.ZSliceCmd) {
+	ctx, span := trace.StartSpan(ctx, "ZRevRangeByScoreWithScores")
+	defer span.End()
 	if rs.config.Cluster {
-		return rs.clusterClient.ZRevRangeByScoreWithScores(ctx, key, opt)
+		cmd = rs.clusterClient.ZRevRangeByScoreWithScores(ctx, key, opt)
+	} else {
+		cmd = rs.client.ZRevRangeByScoreWithScores(ctx, key, opt)
 	}
-	return rs.client.ZRevRangeByScoreWithScores(ctx, key, opt)
+	if cmd.Err() != nil {
+		span.SetStatus(trace.Status{
+			Code:    trace.StatusCodeUnknown,
+			Message: cmd.Err().Error(),
+		})
+	}
+	return
 }
 
-func (rs *RedisStorage) ZRangeByScoreWithScores(ctx context.Context, key string, opt *xredis.ZRangeBy) *xredis.ZSliceCmd {
+func (rs *RedisStorage) ZRangeByScoreWithScores(ctx context.Context, key string, opt *redis.ZRangeBy) (cmd *redis.ZSliceCmd) {
+	ctx, span := trace.StartSpan(ctx, "ZRangeByScoreWithScores")
+	defer span.End()
 	if rs.config.Cluster {
-		return rs.clusterClient.ZRangeByScoreWithScores(ctx, key, opt)
+		cmd = rs.clusterClient.ZRangeByScoreWithScores(ctx, key, opt)
+	} else {
+		cmd = rs.client.ZRangeByScoreWithScores(ctx, key, opt)
 	}
-	return rs.client.ZRangeByScoreWithScores(ctx, key, opt)
+	if cmd.Err() != nil {
+		span.SetStatus(trace.Status{
+			Code:    trace.StatusCodeUnknown,
+			Message: cmd.Err().Error(),
+		})
+	}
+	return
 }
 
-func (rs *RedisStorage) ZScore(ctx context.Context, key, member string) *xredis.FloatCmd {
+func (rs *RedisStorage) ZScore(ctx context.Context, key, member string) *redis.FloatCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.ZScore(ctx, key, member)
 	}
 	return rs.client.ZScore(ctx, key, member)
 }
 
-func (rs *RedisStorage) SMembers(ctx context.Context, key string) *xredis.StringSliceCmd {
+func (rs *RedisStorage) SMembers(ctx context.Context, key string) *redis.StringSliceCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.SMembers(ctx, key)
 	}
 	return rs.client.SMembers(ctx, key)
 }
 
-func (rs *RedisStorage) SAdd(ctx context.Context, key string, members ...interface{}) *xredis.IntCmd {
+func (rs *RedisStorage) SAdd(ctx context.Context, key string, members ...interface{}) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.SAdd(ctx, key, members...)
 	}
 	return rs.client.SAdd(ctx, key, members...)
 }
 
-func (rs *RedisStorage) SRem(ctx context.Context, key string, members ...interface{}) *xredis.IntCmd {
+func (rs *RedisStorage) SRem(ctx context.Context, key string, members ...interface{}) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.SRem(ctx, key, members...)
 	}
 	return rs.client.SRem(ctx, key, members...)
 }
 
-func (rs *RedisStorage) SIsMember(ctx context.Context, key string, member interface{}) *xredis.BoolCmd {
+func (rs *RedisStorage) SIsMember(ctx context.Context, key string, member interface{}) *redis.BoolCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.SIsMember(ctx, key, member)
 	}
 	return rs.client.SIsMember(ctx, key, member)
 }
 
-func (rs *RedisStorage) Get(ctx context.Context, key string) *xredis.StringCmd {
+func (rs *RedisStorage) Get(ctx context.Context, key string) *redis.StringCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.Get(ctx, key)
 	}
 	return rs.client.Get(ctx, key)
 }
 
-func (rs *RedisStorage) MGet(ctx context.Context, keys []string) *xredis.SliceCmd {
+func (rs *RedisStorage) MGet(ctx context.Context, keys []string) *redis.SliceCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.MGet(ctx, keys...)
 	}
 	return rs.client.MGet(ctx, keys...)
 }
 
-func (rs *RedisStorage) IncrBy(ctx context.Context, key string, value int64) *xredis.IntCmd {
+func (rs *RedisStorage) IncrBy(ctx context.Context, key string, value int64) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.IncrBy(ctx, key, value)
 	}
 	return rs.client.IncrBy(ctx, key, value)
 }
 
-func (rs *RedisStorage) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *xredis.StatusCmd {
+func (rs *RedisStorage) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.Set(ctx, key, value, expiration)
 	}
 	return rs.client.Set(ctx, key, value, expiration)
 }
 
-func (rs *RedisStorage) SCard(ctx context.Context, key string) *xredis.IntCmd {
+func (rs *RedisStorage) SCard(ctx context.Context, key string) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.SCard(ctx, key)
 	}
 	return rs.client.SCard(ctx, key)
 }
 
-func (rs *RedisStorage) Expire(ctx context.Context, key string, expiration time.Duration) *xredis.BoolCmd {
+func (rs *RedisStorage) Expire(ctx context.Context, key string, expiration time.Duration) *redis.BoolCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.Expire(ctx, key, expiration)
 	}
 	return rs.client.Expire(ctx, key, expiration)
 }
 
-func (rs *RedisStorage) ZAdd(ctx context.Context, key string, members ...xredis.Z) *xredis.IntCmd {
+func (rs *RedisStorage) ZAdd(ctx context.Context, key string, members ...redis.Z) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.ZAdd(ctx, key, members...)
 	}
 	return rs.client.ZAdd(ctx, key, members...)
 }
 
-func (rs *RedisStorage) ZRem(ctx context.Context, key string, members ...interface{}) *xredis.IntCmd {
+func (rs *RedisStorage) ZRem(ctx context.Context, key string, members ...interface{}) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.ZRem(ctx, key, members...)
 	}
 	return rs.client.ZRem(ctx, key, members...)
 }
 
-func (rs *RedisStorage) ZRangeByScore(ctx context.Context, key string, opt *xredis.ZRangeBy) *xredis.StringSliceCmd {
+func (rs *RedisStorage) ZRangeByScore(ctx context.Context, key string, opt *redis.ZRangeBy) *redis.StringSliceCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.ZRangeByScore(ctx, key, opt)
 	}
 	return rs.client.ZRangeByScore(ctx, key, opt)
 }
 
-func (rs *RedisStorage) ZRangeWithScores(ctx context.Context, key string, start, stop int64) *xredis.ZSliceCmd {
+func (rs *RedisStorage) ZRangeWithScores(ctx context.Context, key string, start, stop int64) *redis.ZSliceCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.ZRangeWithScores(ctx, key, start, stop)
 	}
 	return rs.client.ZRangeWithScores(ctx, key, start, stop)
 }
 
-func (rs *RedisStorage) ZCard(ctx context.Context, key string) *xredis.IntCmd {
+func (rs *RedisStorage) ZCard(ctx context.Context, key string) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.ZCard(ctx, key)
 	}
 	return rs.client.ZCard(ctx, key)
 }
 
-func (rs *RedisStorage) ZPopMax(ctx context.Context, key string, count ...int64) *xredis.ZSliceCmd {
+func (rs *RedisStorage) ZPopMax(ctx context.Context, key string, count ...int64) *redis.ZSliceCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.ZPopMax(ctx, key, count...)
 	}
 	return rs.client.ZPopMax(ctx, key, count...)
 }
 
-func (rs *RedisStorage) ZPopMin(ctx context.Context, key string, count ...int64) *xredis.ZSliceCmd {
+func (rs *RedisStorage) ZPopMin(ctx context.Context, key string, count ...int64) *redis.ZSliceCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.ZPopMin(ctx, key, count...)
 	}
 	return rs.client.ZPopMin(ctx, key, count...)
 }
 
-func (rs *RedisStorage) BZPopMax(ctx context.Context, timeout time.Duration, keys ...string) *xredis.ZWithKeyCmd {
+func (rs *RedisStorage) BZPopMax(ctx context.Context, timeout time.Duration, keys ...string) *redis.ZWithKeyCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.BZPopMax(ctx, timeout, keys...)
 	}
 	return rs.client.BZPopMax(ctx, timeout, keys...)
 }
 
-func (rs *RedisStorage) BZPopMin(ctx context.Context, timeout time.Duration, keys ...string) *xredis.ZWithKeyCmd {
+func (rs *RedisStorage) BZPopMin(ctx context.Context, timeout time.Duration, keys ...string) *redis.ZWithKeyCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.BZPopMin(ctx, timeout, keys...)
 	}
 	return rs.client.BZPopMin(ctx, timeout, keys...)
 }
 
-func (rs *RedisStorage) Del(ctx context.Context, key string) *xredis.IntCmd {
+func (rs *RedisStorage) Del(ctx context.Context, key string) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.Del(ctx, key)
 	}
 	return rs.client.Del(ctx, key)
 }
 
-func (rs *RedisStorage) SetNx(ctx context.Context, key string, value interface{}, expiration time.Duration) *xredis.BoolCmd {
+func (rs *RedisStorage) SetNx(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.SetNX(ctx, key, value, expiration)
 	}
 	return rs.client.SetNX(ctx, key, value, expiration)
 }
 
-func (rs *RedisStorage) SetEx(ctx context.Context, key string, value interface{}, expiration time.Duration) *xredis.StatusCmd {
+func (rs *RedisStorage) SetEx(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.SetEx(ctx, key, value, expiration)
 	}
 	return rs.client.SetEx(ctx, key, value, expiration)
 }
 
-func (rs *RedisStorage) HSet(ctx context.Context, key string, field interface{}, value interface{}) *xredis.IntCmd {
+func (rs *RedisStorage) HSet(ctx context.Context, key string, field interface{}, value interface{}) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.HSet(ctx, key, field, value)
 	}
 	return rs.client.HSet(ctx, key, field, value)
 }
 
-func (rs *RedisStorage) HGet(ctx context.Context, key string, field string) *xredis.StringCmd {
+func (rs *RedisStorage) HGet(ctx context.Context, key string, field string) *redis.StringCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.HGet(ctx, key, field)
 	}
 	return rs.client.HGet(ctx, key, field)
 }
 
-func (rs *RedisStorage) HGetAll(ctx context.Context, key string) *xredis.MapStringStringCmd {
+func (rs *RedisStorage) HGetAll(ctx context.Context, key string) *redis.MapStringStringCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.HGetAll(ctx, key)
 	}
 	return rs.client.HGetAll(ctx, key)
 }
 
-func (rs *RedisStorage) HDel(ctx context.Context, key string, field string) *xredis.IntCmd {
+func (rs *RedisStorage) HDel(ctx context.Context, key string, field string) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.HDel(ctx, key, field)
 	}
 	return rs.client.HDel(ctx, key, field)
 }
 
-func (rs *RedisStorage) HIncrBy(ctx context.Context, key string, field string, incr int64) *xredis.IntCmd {
+func (rs *RedisStorage) HIncrBy(ctx context.Context, key string, field string, incr int64) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.HIncrBy(ctx, key, field, incr)
 	}
 	return rs.client.HIncrBy(ctx, key, field, incr)
 }
 
-func (rs *RedisStorage) HIncrByFloat(ctx context.Context, key string, field string, incr float64) *xredis.FloatCmd {
+func (rs *RedisStorage) HIncrByFloat(ctx context.Context, key string, field string, incr float64) *redis.FloatCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.HIncrByFloat(ctx, key, field, incr)
 	}
 	return rs.client.HIncrByFloat(ctx, key, field, incr)
 }
 
-func (rs *RedisStorage) LPush(ctx context.Context, key string, values ...interface{}) *xredis.IntCmd {
+func (rs *RedisStorage) LPush(ctx context.Context, key string, values ...interface{}) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.LPush(ctx, key, values)
 	}
 	return rs.client.LPush(ctx, key, values)
 }
 
-func (rs *RedisStorage) RPop(ctx context.Context, key string) *xredis.StringCmd {
+func (rs *RedisStorage) RPop(ctx context.Context, key string) *redis.StringCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.RPop(ctx, key)
 	}
 	return rs.client.RPop(ctx, key)
 }
 
-func (rs *RedisStorage) RPush(ctx context.Context, key string, values ...interface{}) *xredis.IntCmd {
+func (rs *RedisStorage) RPush(ctx context.Context, key string, values ...interface{}) *redis.IntCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.RPush(ctx, key, values)
 	}
 	return rs.client.RPush(ctx, key, values)
 }
 
-func (rs *RedisStorage) LPop(ctx context.Context, key string) *xredis.StringCmd {
+func (rs *RedisStorage) LPop(ctx context.Context, key string) *redis.StringCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.LPop(ctx, key)
 	}
@@ -367,14 +409,14 @@ func (rs *RedisStorage) Publish(ctx context.Context, channel string, msg interfa
 	return rs.client.Publish(ctx, channel, msg).Err()
 }
 
-func (rs *RedisStorage) Subscribe(ctx context.Context, channels []string) *xredis.PubSub {
+func (rs *RedisStorage) Subscribe(ctx context.Context, channels []string) *redis.PubSub {
 	if rs.config.Cluster {
 		return rs.clusterClient.Subscribe(ctx, channels...)
 	}
 	return rs.client.Subscribe(ctx, channels...)
 }
 
-func (rs *RedisStorage) ZIncrBy(ctx context.Context, key string, increment float64, member string) *xredis.FloatCmd {
+func (rs *RedisStorage) ZIncrBy(ctx context.Context, key string, increment float64, member string) *redis.FloatCmd {
 	if rs.config.Cluster {
 		return rs.clusterClient.ZIncrBy(ctx, key, increment, member)
 	}

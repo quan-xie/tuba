@@ -130,6 +130,7 @@ github.com/mercari/go-circuitbreaker
 # github.com/opentracing/opentracing-go v1.1.0
 ## explicit
 github.com/opentracing/opentracing-go
+github.com/opentracing/opentracing-go/ext
 github.com/opentracing/opentracing-go/log
 # github.com/openzipkin/zipkin-go v0.4.0
 ## explicit; go 1.14
