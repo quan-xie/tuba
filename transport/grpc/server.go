@@ -1,6 +1,8 @@
 package grpc
 
 import (
+	"context"
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -8,6 +10,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/quan-xie/tuba/log"
 	"github.com/quan-xie/tuba/util/xtime"
+	"go.opencensus.io/trace"
+	"google.golang.org/grpc"
 	xgprc "google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -124,4 +128,35 @@ func (s *Server) configuration(c *ServerConfig) (err error) {
 	s.conf = c
 	s.mutex.Unlock()
 	return
+}
+
+// Tracing Interceptor ....
+func TracingInterceptor() grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req interface{},
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (interface{}, error) {
+		// Start a new trace span for the gRPC method.
+		ctx, span := trace.StartSpan(ctx, fmt.Sprintf("gRPC-%s", info.FullMethod))
+		defer span.End()
+
+		// Add gRPC method information to the span attributes.
+		span.AddAttributes(
+			trace.StringAttribute("grpc.method", info.FullMethod),
+		)
+
+		// Call the gRPC handler.
+		resp, err := handler(ctx, req)
+		if err != nil {
+			// Set the error status on the span.
+			span.SetStatus(trace.Status{
+				Code:    trace.StatusCodeInternal,
+				Message: err.Error(),
+			})
+		}
+
+		return resp, err
+	}
 }
