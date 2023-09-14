@@ -24,7 +24,7 @@ func TestRedisInit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r, e := redisStorage.redis.Set(context.Background(), "test", "1", time.Second*100).Result()
+	r, e := redisStorage.client.Set(context.Background(), "test", "1", time.Second*100).Result()
 	if e != nil {
 		t.Fatal(e)
 	}
