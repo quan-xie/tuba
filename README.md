@@ -18,6 +18,6 @@ go get -u github.com/quan-xie/tuba
 - [x] Traces (支持zipkin、jagger) 
 - [x] RPC (GRPC With K8s headless)
 - [x] Ecode (Customize Error code)
+- [x] Reids (go-redis/v9)
 - [ ] Auth 
-- [ ] Cache  (memcache,redis)
-- [ ] Service Discovery
+
