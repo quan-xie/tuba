@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/quan-xie/tuba/backoff"
+	"github.com/quan-xie/tuba/log"
 	"github.com/quan-xie/tuba/retry"
 	"github.com/quan-xie/tuba/util/xtime"
 )
@@ -233,6 +234,7 @@ func (c *HttpClient) request(ctx context.Context, req *xhttp.Request, res interf
 }
 
 func reqBody(contentType string, param interface{}) (body io.Reader) {
+	var err error
 	if contentType == MIMEPOSTForm {
 		enc, ok := param.(string)
 		if ok {
@@ -241,7 +243,11 @@ func reqBody(contentType string, param interface{}) (body io.Reader) {
 	}
 	if contentType == MIMEJSON {
 		buff := new(bytes.Buffer)
-		sonic.ConfigDefault.NewEncoder(buff).Encode(param)
+		err = sonic.ConfigDefault.NewEncoder(buff).Encode(param)
+		if err != nil {
+			log.Errorf("reqBody error %v", err)
+			return
+		}
 		body = buff
 	}
 	return
