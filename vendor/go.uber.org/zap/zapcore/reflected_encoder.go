@@ -18,32 +18,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package atomic
+package zapcore
 
-// String is an atomic type-safe wrapper around Value for strings.
-type String struct{ v Value }
+import (
+	"encoding/json"
+	"io"
+)
 
-// NewString creates a String.
-func NewString(str string) *String {
-	s := &String{}
-	if str != "" {
-		s.Store(str)
-	}
-	return s
+// ReflectedEncoder serializes log fields that can't be serialized with Zap's
+// JSON encoder. These have the ReflectType field type.
+// Use EncoderConfig.NewReflectedEncoder to set this.
+type ReflectedEncoder interface {
+	// Encode encodes and writes to the underlying data stream.
+	Encode(interface{}) error
 }
 
-// Load atomically loads the wrapped string.
-func (s *String) Load() string {
-	v := s.v.Load()
-	if v == nil {
-		return ""
-	}
-	return v.(string)
-}
-
-// Store atomically stores the passed string.
-// Note: Converting the string to an interface{} to store in the Value
-// requires an allocation.
-func (s *String) Store(str string) {
-	s.v.Store(str)
+func defaultReflectedEncoder(w io.Writer) ReflectedEncoder {
+	enc := json.NewEncoder(w)
+	// For consistency with our custom JSON encoder.
+	enc.SetEscapeHTML(false)
+	return enc
 }

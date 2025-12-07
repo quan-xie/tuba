@@ -1,6 +1,6 @@
 module github.com/quan-xie/tuba
 
-go 1.18
+go 1.20
 
 require (
 	contrib.go.opencensus.io/exporter/jaeger v0.2.1
@@ -19,7 +19,7 @@ require (
 	github.com/redis/go-redis/v9 v9.1.0
 	go.mongodb.org/mongo-driver v1.5.2
 	go.opencensus.io v0.24.0
-	go.uber.org/zap v1.10.0
+	go.uber.org/zap v1.27.1
 	golang.org/x/net v0.20.0
 	google.golang.org/genproto v0.0.0-20240205150955-31a09d347014
 	google.golang.org/grpc v1.61.0
@@ -57,8 +57,7 @@ require (
 	go.opentelemetry.io/otel v1.22.0 // indirect
 	go.opentelemetry.io/otel/metric v1.22.0 // indirect
 	go.opentelemetry.io/otel/trace v1.22.0 // indirect
-	go.uber.org/atomic v1.4.0 // indirect
-	go.uber.org/multierr v1.1.0 // indirect
+	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/crypto v0.18.0 // indirect
 	golang.org/x/sync v0.6.0 // indirect

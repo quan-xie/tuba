@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Uber Technologies, Inc.
+// Copyright (c) 2022 Uber Technologies, Inc.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -18,38 +18,20 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package atomic
+// Package internal and its subpackages hold types and functionality
+// that are not part of Zap's public API.
+package internal
 
-// Error is an atomic type-safe wrapper around Value for errors
-type Error struct{ v Value }
+import "go.uber.org/zap/zapcore"
 
-// errorHolder is non-nil holder for error object.
-// atomic.Value panics on saving nil object, so err object needs to be
-// wrapped with valid object first.
-type errorHolder struct{ err error }
+// LeveledEnabler is an interface satisfied by LevelEnablers that are able to
+// report their own level.
+//
+// This interface is defined to use more conveniently in tests and non-zapcore
+// packages.
+// This cannot be imported from zapcore because of the cyclic dependency.
+type LeveledEnabler interface {
+	zapcore.LevelEnabler
 
-// NewError creates new atomic error object
-func NewError(err error) *Error {
-	e := &Error{}
-	if err != nil {
-		e.Store(err)
-	}
-	return e
-}
-
-// Load atomically loads the wrapped error
-func (e *Error) Load() error {
-	v := e.v.Load()
-	if v == nil {
-		return nil
-	}
-
-	eh := v.(errorHolder)
-	return eh.err
-}
-
-// Store atomically stores error.
-// NOTE: a holder object is allocated on each Store call.
-func (e *Error) Store(err error) {
-	e.v.Store(errorHolder{err: err})
+	Level() zapcore.Level
 }
