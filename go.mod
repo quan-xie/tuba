@@ -1,6 +1,6 @@
 module github.com/quan-xie/tuba
 
-go 1.20
+go 1.24.0
 
 require (
 	contrib.go.opencensus.io/exporter/jaeger v0.2.1
