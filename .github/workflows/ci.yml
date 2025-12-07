@@ -11,16 +11,16 @@ jobs:
   lint:
     strategy:
       matrix:
-        go: [1.18]
+        go: [1.20]
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v6
         with:
          go-version: ${{ matrix.go }}
       - uses: actions/checkout@v3
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3.4.0
+        uses: golangci/golangci-lint-action@v9.2.0
         with:
           args: --timeout=10m
-          version: v1.50.1
+          version: v2.7.1
