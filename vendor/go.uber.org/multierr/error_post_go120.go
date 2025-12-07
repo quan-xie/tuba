@@ -1,4 +1,4 @@
-// Copyright (c) 2016 Uber Technologies, Inc.
+// Copyright (c) 2017-2023 Uber Technologies, Inc.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -18,36 +18,31 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package buffer
+//go:build go1.20
+// +build go1.20
 
-import (
-	"go.uber.org/zap/internal/pool"
-)
+package multierr
 
-// A Pool is a type-safe wrapper around a sync.Pool.
-type Pool struct {
-	p *pool.Pool[*Buffer]
+// Unwrap returns a list of errors wrapped by this multierr.
+func (merr *multiError) Unwrap() []error {
+	return merr.Errors()
 }
 
-// NewPool constructs a new Pool.
-func NewPool() Pool {
-	return Pool{
-		p: pool.New(func() *Buffer {
-			return &Buffer{
-				bs: make([]byte, 0, _size),
-			}
-		}),
+type multipleErrors interface {
+	Unwrap() []error
+}
+
+func extractErrors(err error) []error {
+	if err == nil {
+		return nil
 	}
-}
 
-// Get retrieves a Buffer from the pool, creating one if necessary.
-func (p Pool) Get() *Buffer {
-	buf := p.p.Get()
-	buf.Reset()
-	buf.pool = p
-	return buf
-}
+	// check if the given err is an Unwrapable error that
+	// implements multipleErrors interface.
+	eg, ok := err.(multipleErrors)
+	if !ok {
+		return []error{err}
+	}
 
-func (p Pool) put(buf *Buffer) {
-	p.p.Put(buf)
+	return append(([]error)(nil), eg.Unwrap()...)
 }

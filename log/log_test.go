@@ -1,6 +1,7 @@
 package log
 
 import (
+	"context"
 	"testing"
 )
 
@@ -35,7 +36,14 @@ func TestError(t *testing.T) {
 	Errorf("hello number=%d", 100)
 }
 
+// go test -v -test.run TestFatal
 func TestFatal(t *testing.T) {
 	Fatal("hello")
 	Fatalf("hello  number=%d", 100)
+}
+
+// go test -v -test.run TestCtxInfof
+func TestCtxInfof(t *testing.T) {
+	ctx := WithTraceID(context.Background(), "abc-123")
+	CtxInfo(ctx, "hello world")
 }
