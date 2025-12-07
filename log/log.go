@@ -1,6 +1,7 @@
 package log
 
 import (
+	"context"
 	"io"
 	"strconv"
 	"strings"
@@ -56,6 +57,25 @@ func Init(c *Config) {
 	).Sugar())
 }
 
+type ctxKey string
+
+const traceIDKey ctxKey = "trace_id"
+
+// WithTraceID 设置 trace_id 到 context
+func WithTraceID(ctx context.Context, traceID string) context.Context {
+	return context.WithValue(ctx, traceIDKey, traceID)
+}
+
+// FromContext 获取 trace_id
+func FromContext(ctx context.Context) (string, bool) {
+	v := ctx.Value(traceIDKey)
+	if v == nil {
+		return "", false
+	}
+	s, ok := v.(string)
+	return s, ok
+}
+
 // TimeEncoder time encoder .
 func TimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 	enc.AppendString(strconv.FormatInt(time.Now().Unix(), 10))
@@ -109,6 +129,49 @@ func Fatalf(msg string, args ...interface{}) {
 // Fatal send log fatal
 func Fatal(args ...interface{}) {
 	logger().Fatal(args...)
+}
+
+func withCtx(ctx context.Context, logger *zap.SugaredLogger) *zap.SugaredLogger {
+	if ctx == nil {
+		return logger
+	}
+	if tid, ok := FromContext(ctx); ok {
+		return logger.With("trace_id", tid)
+	}
+	return logger
+}
+
+// CtxInfo 输出 info 级别日志（带 context）
+func CtxInfo(ctx context.Context, args ...interface{}) {
+	withCtx(ctx, logger()).Info(args...)
+}
+
+func CtxInfof(ctx context.Context, msg string, args ...interface{}) {
+	withCtx(ctx, logger()).Infof(msg, args...)
+}
+
+func CtxError(ctx context.Context, args ...interface{}) {
+	withCtx(ctx, logger()).Error(args...)
+}
+
+func CtxErrorf(ctx context.Context, msg string, args ...interface{}) {
+	withCtx(ctx, logger()).Errorf(msg, args...)
+}
+
+func CtxDebug(ctx context.Context, args ...interface{}) {
+	withCtx(ctx, logger()).Debug(args...)
+}
+
+func CtxDebugf(ctx context.Context, msg string, args ...interface{}) {
+	withCtx(ctx, logger()).Debugf(msg, args...)
+}
+
+func CtxWarn(ctx context.Context, args ...interface{}) {
+	withCtx(ctx, logger()).Warn(args...)
+}
+
+func CtxWarnf(ctx context.Context, msg string, args ...interface{}) {
+	withCtx(ctx, logger()).Warnf(msg, args...)
 }
 
 func getWriter(filename string) io.Writer {
