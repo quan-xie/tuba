@@ -85,6 +85,9 @@ func (b *BucketOptions) SetReadPreference(rp *readpref.ReadPref) *BucketOptions 
 }
 
 // MergeBucketOptions combines the given BucketOptions instances into a single BucketOptions in a last-one-wins fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeBucketOptions(opts ...*BucketOptions) *BucketOptions {
 	b := GridFSBucket()
 
@@ -144,6 +147,9 @@ func (u *UploadOptions) SetMetadata(doc interface{}) *UploadOptions {
 }
 
 // MergeUploadOptions combines the given UploadOptions instances into a single UploadOptions in a last-one-wins fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeUploadOptions(opts ...*UploadOptions) *UploadOptions {
 	u := GridFSUpload()
 
@@ -192,6 +198,9 @@ func (n *NameOptions) SetRevision(r int32) *NameOptions {
 }
 
 // MergeNameOptions combines the given NameOptions instances into a single *NameOptions in a last-one-wins fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeNameOptions(opts ...*NameOptions) *NameOptions {
 	n := GridFSName()
 	n.Revision = &DefaultRevision
@@ -225,6 +234,10 @@ type GridFSFindOptions struct {
 
 	// The maximum amount of time that the query can run on the server. The default value is nil, meaning that there
 	// is no time limit for query execution.
+	//
+	// NOTE(benjirewis): MaxTime will be deprecated in a future release. The more general Timeout option may be used
+	// in its place to control the amount of time that a single operation can run before returning an error. MaxTime
+	// is ignored if Timeout is set on the client.
 	MaxTime *time.Duration
 
 	// If true, the cursor created by the operation will not timeout after a period of inactivity. The default value
@@ -263,6 +276,10 @@ func (f *GridFSFindOptions) SetLimit(i int32) *GridFSFindOptions {
 }
 
 // SetMaxTime sets the value for the MaxTime field.
+//
+// NOTE(benjirewis): MaxTime will be deprecated in a future release. The more general Timeout
+// option may be used in its place to control the amount of time that a single operation can
+// run before returning an error. MaxTime is ignored if Timeout is set on the client.
 func (f *GridFSFindOptions) SetMaxTime(d time.Duration) *GridFSFindOptions {
 	f.MaxTime = &d
 	return f
@@ -288,6 +305,9 @@ func (f *GridFSFindOptions) SetSort(sort interface{}) *GridFSFindOptions {
 
 // MergeGridFSFindOptions combines the given GridFSFindOptions instances into a single GridFSFindOptions in a
 // last-one-wins fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeGridFSFindOptions(opts ...*GridFSFindOptions) *GridFSFindOptions {
 	fo := GridFSFind()
 	for _, opt := range opts {

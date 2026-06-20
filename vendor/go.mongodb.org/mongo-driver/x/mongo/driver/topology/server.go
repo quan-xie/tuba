@@ -15,15 +15,40 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/event"
+	"go.mongodb.org/mongo-driver/internal/driverutil"
+	"go.mongodb.org/mongo-driver/internal/logger"
 	"go.mongodb.org/mongo-driver/mongo/address"
 	"go.mongodb.org/mongo-driver/mongo/description"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/operation"
 )
 
 const minHeartbeatInterval = 500 * time.Millisecond
+const wireVersion42 = 8 // Wire version for MongoDB 4.2
+
+// Server state constants.
+const (
+	serverDisconnected int64 = iota
+	serverDisconnecting
+	serverConnected
+)
+
+func serverStateString(state int64) string {
+	switch state {
+	case serverDisconnected:
+		return "Disconnected"
+	case serverDisconnecting:
+		return "Disconnecting"
+	case serverConnected:
+		return "Connected"
+	}
+
+	return ""
+}
 
 var (
 	// ErrServerClosed occurs when an attempt to Get a connection is made after
@@ -54,37 +79,18 @@ func (ss *SelectedServer) Description() description.SelectedServer {
 	}
 }
 
-// These constants represent the connection states of a server.
-const (
-	disconnected int32 = iota
-	disconnecting
-	connected
-	connecting
-	initialized
-)
-
-func connectionStateString(state int32) string {
-	switch state {
-	case 0:
-		return "Disconnected"
-	case 1:
-		return "Disconnecting"
-	case 2:
-		return "Connected"
-	case 3:
-		return "Connecting"
-	case 4:
-		return "Initialized"
-	}
-
-	return ""
-}
-
 // Server is a single server within a topology.
 type Server struct {
-	cfg             *serverConfig
-	address         address.Address
-	connectionstate int32
+	// The following integer fields must be accessed using the atomic package and should be at the
+	// beginning of the struct.
+	// - atomic bug: https://pkg.go.dev/sync/atomic#pkg-note-BUG
+	// - suggested layout: https://go101.org/article/memory-layout.html
+
+	state          int64
+	operationCount int64
+
+	cfg     *serverConfig
+	address address.Address
 
 	// connection related fields
 	pool *pool
@@ -119,6 +125,7 @@ type Server struct {
 
 	processErrorLock sync.Mutex
 	rttMonitor       *rttMonitor
+	monitorOnce      sync.Once
 }
 
 // updateTopologyCallback is a callback used to create a server that should be called when the parent Topology instance
@@ -128,12 +135,14 @@ type updateTopologyCallback func(description.Server) description.Server
 
 // ConnectServer creates a new Server and then initializes it using the
 // Connect method.
-func ConnectServer(addr address.Address, updateCallback updateTopologyCallback, topologyID primitive.ObjectID, opts ...ServerOption) (*Server, error) {
-	srvr, err := NewServer(addr, topologyID, opts...)
-	if err != nil {
-		return nil, err
-	}
-	err = srvr.Connect(updateCallback)
+func ConnectServer(
+	addr address.Address,
+	updateCallback updateTopologyCallback,
+	topologyID primitive.ObjectID,
+	opts ...ServerOption,
+) (*Server, error) {
+	srvr := NewServer(addr, topologyID, opts...)
+	err := srvr.Connect(updateCallback)
 	if err != nil {
 		return nil, err
 	}
@@ -142,14 +151,12 @@ func ConnectServer(addr address.Address, updateCallback updateTopologyCallback, 
 
 // NewServer creates a new server. The mongodb server at the address will be monitored
 // on an internal monitoring goroutine.
-func NewServer(addr address.Address, topologyID primitive.ObjectID, opts ...ServerOption) (*Server, error) {
-	cfg, err := newServerConfig(opts...)
-	if err != nil {
-		return nil, err
-	}
-
+func NewServer(addr address.Address, topologyID primitive.ObjectID, opts ...ServerOption) *Server {
+	cfg := newServerConfig(opts...)
 	globalCtx, globalCtxCancel := context.WithCancel(context.Background())
 	s := &Server{
+		state: serverDisconnected,
+
 		cfg:     cfg,
 		address: addr,
 
@@ -166,45 +173,93 @@ func NewServer(addr address.Address, topologyID primitive.ObjectID, opts ...Serv
 	s.desc.Store(description.NewDefaultServer(addr))
 	rttCfg := &rttConfig{
 		interval:           cfg.heartbeatInterval,
+		minRTTWindow:       5 * time.Minute,
 		createConnectionFn: s.createConnection,
 		createOperationFn:  s.createBaseOperation,
 	}
-	s.rttMonitor = newRttMonitor(rttCfg)
+	s.rttMonitor = newRTTMonitor(rttCfg)
 
 	pc := poolConfig{
-		Address:     addr,
-		MinPoolSize: cfg.minConns,
-		MaxPoolSize: cfg.maxConns,
-		MaxIdleTime: cfg.connectionPoolMaxIdleTime,
-		PoolMonitor: cfg.poolMonitor,
+		Address:          addr,
+		MinPoolSize:      cfg.minConns,
+		MaxPoolSize:      cfg.maxConns,
+		MaxConnecting:    cfg.maxConnecting,
+		MaxIdleTime:      cfg.poolMaxIdleTime,
+		MaintainInterval: cfg.poolMaintainInterval,
+		LoadBalanced:     cfg.loadBalanced,
+		PoolMonitor:      cfg.poolMonitor,
+		Logger:           cfg.logger,
+		handshakeErrFn:   s.ProcessHandshakeError,
 	}
 
-	connectionOpts := append(cfg.connectionOpts, withErrorHandlingCallback(s.ProcessHandshakeError))
-	s.pool, err = newPool(pc, connectionOpts...)
-	if err != nil {
-		return nil, err
-	}
-
+	connectionOpts := copyConnectionOpts(cfg.connectionOpts)
+	s.pool = newPool(pc, connectionOpts...)
 	s.publishServerOpeningEvent(s.address)
 
-	return s, nil
+	return s
+}
+
+func mustLogServerMessage(srv *Server) bool {
+	return srv.cfg.logger != nil && srv.cfg.logger.LevelComponentEnabled(
+		logger.LevelDebug, logger.ComponentTopology)
+}
+
+func logServerMessage(srv *Server, msg string, keysAndValues ...interface{}) {
+	serverHost, serverPort, err := net.SplitHostPort(srv.address.String())
+	if err != nil {
+		serverHost = srv.address.String()
+		serverPort = ""
+	}
+
+	var driverConnectionID uint64
+	var serverConnectionID *int64
+
+	if srv.conn != nil {
+		driverConnectionID = srv.conn.driverConnectionID
+		serverConnectionID = srv.conn.serverConnectionID
+	}
+
+	srv.cfg.logger.Print(logger.LevelDebug,
+		logger.ComponentTopology,
+		msg,
+		logger.SerializeServer(logger.Server{
+			DriverConnectionID: driverConnectionID,
+			TopologyID:         srv.topologyID,
+			Message:            msg,
+			ServerConnectionID: serverConnectionID,
+			ServerHost:         serverHost,
+			ServerPort:         serverPort,
+		}, keysAndValues...)...)
 }
 
 // Connect initializes the Server by starting background monitoring goroutines.
 // This method must be called before a Server can be used.
 func (s *Server) Connect(updateCallback updateTopologyCallback) error {
-	if !atomic.CompareAndSwapInt32(&s.connectionstate, disconnected, connected) {
+	if !atomic.CompareAndSwapInt64(&s.state, serverDisconnected, serverConnected) {
 		return ErrServerConnected
 	}
-	s.desc.Store(description.NewDefaultServer(s.address))
+
+	desc := description.NewDefaultServer(s.address)
+	if s.cfg.loadBalanced {
+		// LBs automatically start off with kind LoadBalancer because there is no monitoring routine for state changes.
+		desc.Kind = description.LoadBalancer
+	}
+	s.desc.Store(desc)
 	s.updateTopologyCallback.Store(updateCallback)
 
-	if !s.cfg.monitoringDisabled {
-		s.rttMonitor.connect()
+	if !s.cfg.monitoringDisabled && !s.cfg.loadBalanced {
 		s.closewg.Add(1)
 		go s.update()
 	}
-	return s.pool.connect()
+
+	// The CMAP spec describes that pools should only be marked "ready" when the server description
+	// is updated to something other than "Unknown". However, we maintain the previous Server
+	// behavior here and immediately mark the pool as ready during Connect() to simplify and speed
+	// up the Client startup behavior. The risk of marking a pool as ready proactively during
+	// Connect() is that we could attempt to create connections to a server that was configured
+	// erroneously until the first server check or checkOut() failure occurs, when the SDAM error
+	// handler would transition the Server back to "Unknown" and set the pool to "paused".
+	return s.pool.ready()
 }
 
 // Disconnect closes sockets to the server referenced by this Server.
@@ -217,7 +272,7 @@ func (s *Server) Connect(updateCallback updateTopologyCallback) error {
 // any in flight read or write operations. If this method returns with no
 // errors, all connections associated with this Server have been closed.
 func (s *Server) Disconnect(ctx context.Context) error {
-	if !atomic.CompareAndSwapInt32(&s.connectionstate, connected, disconnecting) {
+	if !atomic.CompareAndSwapInt64(&s.state, serverConnected, serverDisconnecting) {
 		return ErrServerClosed
 	}
 
@@ -231,58 +286,77 @@ func (s *Server) Disconnect(ctx context.Context) error {
 	close(s.done)
 	s.cancelCheck()
 
-	s.rttMonitor.disconnect()
-	err := s.pool.disconnect(ctx)
-	if err != nil {
-		return err
-	}
+	s.pool.close(ctx)
 
 	s.closewg.Wait()
-	atomic.StoreInt32(&s.connectionstate, disconnected)
+	s.rttMonitor.disconnect()
+	atomic.StoreInt64(&s.state, serverDisconnected)
 
 	return nil
 }
 
 // Connection gets a connection to the server.
 func (s *Server) Connection(ctx context.Context) (driver.Connection, error) {
-
-	if s.pool.monitor != nil {
-		s.pool.monitor.Event(&event.PoolEvent{
-			Type:    "ConnectionCheckOutStarted",
-			Address: s.pool.address.String(),
-		})
-	}
-
-	if atomic.LoadInt32(&s.connectionstate) != connected {
+	if atomic.LoadInt64(&s.state) != serverConnected {
 		return nil, ErrServerClosed
 	}
 
-	connImpl, err := s.pool.get(ctx)
+	// Increment the operation count before calling checkOut to make sure that all connection
+	// requests are included in the operation count, including those in the wait queue. If we got an
+	// error instead of a connection, immediately decrement the operation count.
+	atomic.AddInt64(&s.operationCount, 1)
+	conn, err := s.pool.checkOut(ctx)
 	if err != nil {
-		// The error has already been handled by connection.connect, which calls Server.ProcessHandshakeError.
+		atomic.AddInt64(&s.operationCount, -1)
 		return nil, err
 	}
 
-	return &Connection{connection: connImpl}, nil
+	return &Connection{
+		connection: conn,
+		cleanupServerFn: func() {
+			// Decrement the operation count whenever the caller is done with the connection. Note
+			// that cleanupServerFn() is not called while the connection is pinned to a cursor or
+			// transaction, so the operation count is not decremented until the cursor is closed or
+			// the transaction is committed or aborted. Use an int64 instead of a uint64 to mitigate
+			// the impact of any possible bugs that could cause the uint64 to underflow, which would
+			// make the server much less selectable.
+			atomic.AddInt64(&s.operationCount, -1)
+		},
+	}, nil
 }
 
-// ProcessHandshakeError implements SDAM error handling for errors that occur before a connection finishes handshaking.
-func (s *Server) ProcessHandshakeError(err error, startingGenerationNumber uint64) {
-	// ignore nil or stale error
-	if err == nil || startingGenerationNumber < atomic.LoadUint64(&s.pool.generation) {
+// ProcessHandshakeError implements SDAM error handling for errors that occur before a connection
+// finishes handshaking.
+func (s *Server) ProcessHandshakeError(err error, startingGenerationNumber uint64, serviceID *primitive.ObjectID) {
+	// Ignore the error if the server is behind a load balancer but the service ID is unknown. This indicates that the
+	// error happened when dialing the connection or during the MongoDB handshake, so we don't know the service ID to
+	// use for clearing the pool.
+	if err == nil || s.cfg.loadBalanced && serviceID == nil {
+		return
+	}
+	// Ignore the error if the connection is stale.
+	if generation, _ := s.pool.generation.getGeneration(serviceID); startingGenerationNumber < generation {
 		return
 	}
 
+	// Unwrap any connection errors. If there is no wrapped connection error, then the error should
+	// not result in any Server state change (e.g. a command error from the database).
 	wrappedConnErr := unwrapConnectionError(err)
 	if wrappedConnErr == nil {
 		return
 	}
 
+	// Must hold the processErrorLock while updating the server description and clearing the pool.
+	// Not holding the lock leads to possible out-of-order processing of pool.clear() and
+	// pool.ready() calls from concurrent server description updates.
+	s.processErrorLock.Lock()
+	defer s.processErrorLock.Unlock()
+
 	// Since the only kind of ConnectionError we receive from pool.Get will be an initialization error, we should set
 	// the description.Server appropriately. The description should not have a TopologyVersion because the staleness
 	// checking logic above has already determined that this description is not stale.
 	s.updateDescription(description.NewServerFromError(s.address, wrappedConnErr, nil))
-	s.pool.clear()
+	s.pool.clear(err, serviceID)
 	s.cancelCheck()
 }
 
@@ -306,7 +380,7 @@ func (s *Server) SelectedDescription() description.SelectedServer {
 // updated server descriptions will be sent. The channel will have a buffer
 // size of one, and will be pre-populated with the current description.
 func (s *Server) Subscribe() (*ServerSubscription, error) {
-	if atomic.LoadInt32(&s.connectionstate) != connected {
+	if atomic.LoadInt64(&s.state) != serverConnected {
 		return nil, ErrSubscribeAfterClosed
 	}
 	ch := make(chan description.Server, 1)
@@ -343,13 +417,13 @@ func (s *Server) RequestImmediateCheck() {
 // (error, true) if the error is a WriteConcernError and the falls under the requirements for SDAM error
 // handling and (nil, false) otherwise.
 func getWriteConcernErrorForProcessing(err error) (*driver.WriteConcernError, bool) {
-	writeCmdErr, ok := err.(driver.WriteCommandError)
-	if !ok {
+	var writeCmdErr driver.WriteCommandError
+	if !errors.As(err, &writeCmdErr) {
 		return nil, false
 	}
 
 	wcerr := writeCmdErr.WriteConcernError
-	if wcerr != nil && (wcerr.NodeIsRecovering() || wcerr.NotMaster()) {
+	if wcerr != nil && (wcerr.NodeIsRecovering() || wcerr.NotPrimary()) {
 		return wcerr, true
 	}
 	return nil, false
@@ -357,24 +431,58 @@ func getWriteConcernErrorForProcessing(err error) (*driver.WriteConcernError, bo
 
 // ProcessError handles SDAM error handling and implements driver.ErrorProcessor.
 func (s *Server) ProcessError(err error, conn driver.Connection) driver.ProcessErrorResult {
-	// ignore nil error
+	// Ignore nil errors.
 	if err == nil {
 		return driver.NoChange
 	}
 
-	s.processErrorLock.Lock()
-	defer s.processErrorLock.Unlock()
-
-	// ignore stale error
+	// Ignore errors from stale connections because the error came from a previous generation of the
+	// connection pool. The root cause of the error has already been handled, which is what caused
+	// the pool generation to increment. Processing errors for stale connections could result in
+	// handling the same error root cause multiple times (e.g. a temporary network interrupt causing
+	// all connections to the same server to return errors).
 	if conn.Stale() {
 		return driver.NoChange
 	}
-	// Invalidate server description if not master or node recovering error occurs.
+
+	// Must hold the processErrorLock while updating the server description and clearing the pool.
+	// Not holding the lock leads to possible out-of-order processing of pool.clear() and
+	// pool.ready() calls from concurrent server description updates.
+	s.processErrorLock.Lock()
+	defer s.processErrorLock.Unlock()
+
+	// Get the wire version and service ID from the connection description because they will never
+	// change for the lifetime of a connection and can possibly be different between connections to
+	// the same server.
+	connDesc := conn.Description()
+	wireVersion := connDesc.WireVersion
+	serviceID := connDesc.ServiceID
+
+	// Get the topology version from the Server description because the Server description is
+	// updated by heartbeats and errors, so typically has a more up-to-date topology version.
+	serverDesc := s.desc.Load().(description.Server)
+	topologyVersion := serverDesc.TopologyVersion
+
+	// We don't currently update the Server topology version when we create new application
+	// connections, so it's possible for a connection's topology version to be newer than the
+	// Server's topology version. Pick the "newest" of the two topology versions.
+	// Technically a nil topology version on a new database response should be considered a new
+	// topology version and replace the Server's topology version. However, we don't know if the
+	// connection's topology version is based on a new or old database response, so we ignore a nil
+	// topology version on the connection for now.
+	//
+	// TODO(GODRIVER-2841): Remove this logic once we set the Server description when we create
+	// TODO application connections because then the Server's topology version will always be the
+	// TODO latest known.
+	if tv := connDesc.TopologyVersion; tv != nil && topologyVersion.CompareToIncoming(tv) < 0 {
+		topologyVersion = tv
+	}
+
+	// Invalidate server description if not primary or node recovering error occurs.
 	// These errors can be reported as a command error or a write concern error.
-	desc := conn.Description()
-	if cerr, ok := err.(driver.Error); ok && (cerr.NodeIsRecovering() || cerr.NotMaster()) {
-		// ignore stale error
-		if desc.TopologyVersion.CompareToIncoming(cerr.TopologyVersion) >= 0 {
+	if cerr, ok := err.(driver.Error); ok && (cerr.NodeIsRecovering() || cerr.NotPrimary()) {
+		// Ignore errors that came from when the database was on a previous topology version.
+		if topologyVersion.CompareToIncoming(cerr.TopologyVersion) >= 0 {
 			return driver.NoChange
 		}
 
@@ -384,15 +492,16 @@ func (s *Server) ProcessError(err error, conn driver.Connection) driver.ProcessE
 
 		res := driver.ServerMarkedUnknown
 		// If the node is shutting down or is older than 4.2, we synchronously clear the pool
-		if cerr.NodeIsShuttingDown() || desc.WireVersion == nil || desc.WireVersion.Max < 8 {
+		if cerr.NodeIsShuttingDown() || wireVersion == nil || wireVersion.Max < wireVersion42 {
 			res = driver.ConnectionPoolCleared
-			s.pool.clear()
+			s.pool.clear(err, serviceID)
 		}
+
 		return res
 	}
 	if wcerr, ok := getWriteConcernErrorForProcessing(err); ok {
-		// ignore stale error
-		if desc.TopologyVersion.CompareToIncoming(wcerr.TopologyVersion) >= 0 {
+		// Ignore errors that came from when the database was on a previous topology version.
+		if topologyVersion.CompareToIncoming(wcerr.TopologyVersion) >= 0 {
 			return driver.NoChange
 		}
 
@@ -402,9 +511,9 @@ func (s *Server) ProcessError(err error, conn driver.Connection) driver.ProcessE
 
 		res := driver.ServerMarkedUnknown
 		// If the node is shutting down or is older than 4.2, we synchronously clear the pool
-		if wcerr.NodeIsShuttingDown() || desc.WireVersion == nil || desc.WireVersion.Max < 8 {
+		if wcerr.NodeIsShuttingDown() || wireVersion == nil || wireVersion.Max < wireVersion42 {
 			res = driver.ConnectionPoolCleared
-			s.pool.clear()
+			s.pool.clear(err, serviceID)
 		}
 		return res
 	}
@@ -418,7 +527,7 @@ func (s *Server) ProcessError(err error, conn driver.Connection) driver.ProcessE
 	if netErr, ok := wrappedConnErr.(net.Error); ok && netErr.Timeout() {
 		return driver.NoChange
 	}
-	if wrappedConnErr == context.Canceled || wrappedConnErr == context.DeadlineExceeded {
+	if errors.Is(wrappedConnErr, context.Canceled) || errors.Is(wrappedConnErr, context.DeadlineExceeded) {
 		return driver.NoChange
 	}
 
@@ -426,12 +535,12 @@ func (s *Server) ProcessError(err error, conn driver.Connection) driver.ProcessE
 	// monitoring check. The check is cancelled last to avoid a post-cancellation reconnect racing with
 	// updateDescription.
 	s.updateDescription(description.NewServerFromError(s.address, err, nil))
-	s.pool.clear()
+	s.pool.clear(err, serviceID)
 	s.cancelCheck()
 	return driver.ConnectionPoolCleared
 }
 
-// update handles performing heartbeats and updating any subscribers of the
+// update handle performing heartbeats and updating any subscribers of the
 // newest description.Server retrieved.
 func (s *Server) update() {
 	defer s.closewg.Done()
@@ -442,19 +551,9 @@ func (s *Server) update() {
 	checkNow := s.checkNow
 	done := s.done
 
-	var doneOnce bool
-	defer func() {
-		if r := recover(); r != nil {
-			if doneOnce {
-				return
-			}
-			// We keep this goroutine alive attempting to read from the done channel.
-			<-done
-		}
-	}()
+	defer logUnexpectedFailure(s.cfg.logger, "Encountered unexpected failure updating server")
 
 	closeServer := func() {
-		doneOnce = true
 		s.subLock.Lock()
 		for id, c := range s.subscribers {
 			close(c)
@@ -489,6 +588,7 @@ func (s *Server) update() {
 		}
 	}
 
+	timeoutCnt := 0
 	for {
 		// Check if the server is disconnecting. Even if waitForNextCheck has already read from the done channel, we
 		// can safely read from it again because Disconnect closes the channel.
@@ -503,8 +603,8 @@ func (s *Server) update() {
 
 		// Perform the next check.
 		desc, err := s.check()
-		if err == errCheckCancelled {
-			if atomic.LoadInt32(&s.connectionstate) != connected {
+		if errors.Is(err, errCheckCancelled) {
+			if atomic.LoadInt64(&s.state) != serverConnected {
 				continue
 			}
 
@@ -514,21 +614,59 @@ func (s *Server) update() {
 			continue
 		}
 
-		s.updateDescription(desc)
-		if desc.LastError != nil {
-			// Clear the pool once the description has been updated to Unknown.
-			s.pool.clear()
+		if isShortcut := func() bool {
+			// Must hold the processErrorLock while updating the server description and clearing the
+			// pool. Not holding the lock leads to possible out-of-order processing of pool.clear() and
+			// pool.ready() calls from concurrent server description updates.
+			s.processErrorLock.Lock()
+			defer s.processErrorLock.Unlock()
+
+			s.updateDescription(desc)
+			// Retry after the first timeout before clearing the pool in case of a FAAS pause as
+			// described in GODRIVER-2577.
+			if err := unwrapConnectionError(desc.LastError); err != nil && timeoutCnt < 1 {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					timeoutCnt++
+					// We want to immediately retry on timeout error. Continue to next loop.
+					return true
+				}
+				if err, ok := err.(net.Error); ok && err.Timeout() {
+					timeoutCnt++
+					// We want to immediately retry on timeout error. Continue to next loop.
+					return true
+				}
+			}
+			if err := desc.LastError; err != nil {
+				// Clear the pool once the description has been updated to Unknown. Pass in a nil service ID to clear
+				// because the monitoring routine only runs for non-load balanced deployments in which servers don't return
+				// IDs.
+				if timeoutCnt > 0 {
+					s.pool.clearAll(err, nil)
+				} else {
+					s.pool.clear(err, nil)
+				}
+			}
+			// We're either not handling a timeout error, or we just handled the 2nd consecutive
+			// timeout error. In either case, reset the timeout count to 0 and return false to
+			// continue the normal check process.
+			timeoutCnt = 0
+			return false
+		}(); isShortcut {
+			continue
 		}
 
 		// If the server supports streaming or we're already streaming, we want to move to streaming the next response
 		// without waiting. If the server has transitioned to Unknown from a network error, we want to do another
 		// check without waiting in case it was a transient error and the server isn't actually down.
-		serverSupportsStreaming := desc.Kind != description.Unknown && desc.TopologyVersion != nil
 		connectionIsStreaming := s.conn != nil && s.conn.getCurrentlyStreaming()
 		transitionedFromNetworkError := desc.LastError != nil && unwrapConnectionError(desc.LastError) != nil &&
 			previousDescription.Kind != description.Unknown
 
-		if serverSupportsStreaming || connectionIsStreaming || transitionedFromNetworkError {
+		if isStreamingEnabled(s) && isStreamable(s) {
+			s.monitorOnce.Do(s.rttMonitor.connect)
+		}
+
+		if isStreamingEnabled(s) && (isStreamable(s) || connectionIsStreaming) || transitionedFromNetworkError {
 			continue
 		}
 
@@ -543,10 +681,25 @@ func (s *Server) update() {
 // parameter is used to determine if this is the first description from the
 // server.
 func (s *Server) updateDescription(desc description.Server) {
-	defer func() {
-		//  ¯\_(ツ)_/¯
-		_ = recover()
-	}()
+	if s.cfg.loadBalanced {
+		// In load balanced mode, there are no updates from the monitoring routine. For errors encountered in pooled
+		// connections, the server should not be marked Unknown to ensure that the LB remains selectable.
+		return
+	}
+
+	defer logUnexpectedFailure(s.cfg.logger, "Encountered unexpected failure updating server description")
+
+	// Anytime we update the server description to something other than "unknown", set the pool to
+	// "ready". Do this before updating the description so that connections can be checked out as
+	// soon as the server is selectable. If the pool is already ready, this operation is a no-op.
+	// Note that this behavior is roughly consistent with the current Go driver behavior (connects
+	// to all servers, even non-data-bearing nodes) but deviates slightly from CMAP spec, which
+	// specifies a more restricted set of server descriptions and topologies that should mark the
+	// pool ready. We don't have access to the topology here, so prefer the current Go driver
+	// behavior for simplicity.
+	if desc.Kind != description.Unknown {
+		_ = s.pool.ready()
+	}
 
 	// Use the updateTopologyCallback to update the parent Topology and get the description that should be stored.
 	callback, ok := s.updateTopologyCallback.Load().(updateTopologyCallback)
@@ -569,30 +722,33 @@ func (s *Server) updateDescription(desc description.Server) {
 
 // createConnection creates a new connection instance but does not call connect on it. The caller must call connect
 // before the connection can be used for network operations.
-func (s *Server) createConnection() (*connection, error) {
-	opts := []ConnectionOption{
+func (s *Server) createConnection() *connection {
+	opts := copyConnectionOpts(s.cfg.connectionOpts)
+	opts = append(opts,
 		WithConnectTimeout(func(time.Duration) time.Duration { return s.cfg.heartbeatTimeout }),
 		WithReadTimeout(func(time.Duration) time.Duration { return s.cfg.heartbeatTimeout }),
 		WithWriteTimeout(func(time.Duration) time.Duration { return s.cfg.heartbeatTimeout }),
 		// We override whatever handshaker is currently attached to the options with a basic
 		// one because need to make sure we don't do auth.
-		WithHandshaker(func(h Handshaker) Handshaker {
-			return operation.NewIsMaster().AppName(s.cfg.appname).Compressors(s.cfg.compressionOpts)
+		WithHandshaker(func(Handshaker) Handshaker {
+			return operation.NewHello().AppName(s.cfg.appname).Compressors(s.cfg.compressionOpts).
+				ServerAPI(s.cfg.serverAPI)
 		}),
 		// Override any monitors specified in options with nil to avoid monitoring heartbeats.
 		WithMonitor(func(*event.CommandMonitor) *event.CommandMonitor { return nil }),
-		withPoolMonitor(func(*event.PoolMonitor) *event.PoolMonitor { return nil }),
-	}
-	opts = append(s.cfg.connectionOpts, opts...)
+	)
 
 	return newConnection(s.address, opts...)
 }
 
+func copyConnectionOpts(opts []ConnectionOption) []ConnectionOption {
+	optsCopy := make([]ConnectionOption, len(opts))
+	copy(optsCopy, opts)
+	return optsCopy
+}
+
 func (s *Server) setupHeartbeatConnection() error {
-	conn, err := s.createConnection()
-	if err != nil {
-		return err
-	}
+	conn := s.createConnection()
 
 	// Take the lock when assigning the context and connection because they're accessed by cancelCheck.
 	s.heartbeatLock.Lock()
@@ -604,8 +760,7 @@ func (s *Server) setupHeartbeatConnection() error {
 	s.conn = conn
 	s.heartbeatLock.Unlock()
 
-	s.conn.connect(s.heartbeatCtx)
-	return s.conn.wait()
+	return s.conn.connect(s.heartbeatCtx)
 }
 
 // cancelCheck cancels in-progress connection dials and reads. It does not set any fields on the server.
@@ -624,11 +779,11 @@ func (s *Server) cancelCheck() {
 		return
 	}
 
-	// If the connection exists, we need to wait for it to be connected conn.connect() and conn.close() cannot be called
-	// concurrently. We can ignore the error from conn.wait(). If the connection wasn't successfully opened, its state
-	// was set back to disconnected, so calling conn.close() will be a noop.
+	// If the connection exists, we need to wait for it to be connected because conn.connect() and
+	// conn.close() cannot be called concurrently. If the connection wasn't successfully opened, its
+	// state was set back to disconnected, so calling conn.close() will be a no-op.
 	conn.closeConnectContext()
-	_ = conn.wait()
+	conn.wait()
 	_ = conn.close()
 }
 
@@ -636,49 +791,78 @@ func (s *Server) checkWasCancelled() bool {
 	return s.heartbeatCtx.Err() != nil
 }
 
-func (s *Server) createBaseOperation(conn driver.Connection) *operation.IsMaster {
+func (s *Server) createBaseOperation(conn driver.Connection) *operation.Hello {
 	return operation.
-		NewIsMaster().
+		NewHello().
 		ClusterClock(s.cfg.clock).
-		Deployment(driver.SingleConnectionDeployment{conn})
+		Deployment(driver.SingleConnectionDeployment{C: conn}).
+		ServerAPI(s.cfg.serverAPI)
+}
+
+func isStreamingEnabled(srv *Server) bool {
+	switch srv.cfg.serverMonitoringMode {
+	case connstring.ServerMonitoringModeStream:
+		return true
+	case connstring.ServerMonitoringModePoll:
+		return false
+	default:
+		return driverutil.GetFaasEnvName() == ""
+	}
+}
+
+func isStreamable(srv *Server) bool {
+	return srv.Description().Kind != description.Unknown && srv.Description().TopologyVersion != nil
 }
 
 func (s *Server) check() (description.Server, error) {
 	var descPtr *description.Server
 	var err error
-	var durationNanos int64
+	var duration time.Duration
+
+	start := time.Now()
 
 	// Create a new connection if this is the first check, the connection was closed after an error during the previous
 	// check, or the previous check was cancelled.
 	if s.conn == nil || s.conn.closed() || s.checkWasCancelled() {
+		connID := "0"
+		if s.conn != nil {
+			connID = s.conn.ID()
+		}
+		s.publishServerHeartbeatStartedEvent(connID, false)
 		// Create a new connection and add it's handshake RTT as a sample.
 		err = s.setupHeartbeatConnection()
+		duration = time.Since(start)
+		connID = "0"
+		if s.conn != nil {
+			connID = s.conn.ID()
+		}
 		if err == nil {
 			// Use the description from the connection handshake as the value for this check.
-			s.rttMonitor.addSample(s.conn.isMasterRTT)
+			s.rttMonitor.addSample(s.conn.helloRTT)
 			descPtr = &s.conn.desc
-			durationNanos = s.conn.isMasterRTT.Nanoseconds()
+			s.publishServerHeartbeatSucceededEvent(connID, duration, s.conn.desc, false)
+		} else {
+			err = unwrapConnectionError(err)
+			s.publishServerHeartbeatFailedEvent(connID, duration, err, false)
 		}
-	}
-
-	if descPtr == nil && err == nil {
+	} else {
 		// An existing connection is being used. Use the server description properties to execute the right heartbeat.
 
 		// Wrap conn in a type that implements driver.StreamerConnection.
 		heartbeatConn := initConnection{s.conn}
 		baseOperation := s.createBaseOperation(heartbeatConn)
 		previousDescription := s.Description()
-		streamable := previousDescription.TopologyVersion != nil
+		streamable := isStreamingEnabled(s) && isStreamable(s)
 
 		s.publishServerHeartbeatStartedEvent(s.conn.ID(), s.conn.getCurrentlyStreaming() || streamable)
-		start := time.Now()
+
 		switch {
 		case s.conn.getCurrentlyStreaming():
 			// The connection is already in a streaming state, so we stream the next response.
 			err = baseOperation.StreamResponse(s.heartbeatCtx, heartbeatConn)
 		case streamable:
 			// The server supports the streamable protocol. Set the socket timeout to
-			// connectTimeoutMS+heartbeatFrequencyMS and execute an awaitable isMaster request. Set conn.canStream so
+			// connectTimeoutMS+heartbeatFrequencyMS and execute an awaitable hello request. Set conn.canStream so
 			// the wire message will advertise streaming support to the server.
 
 			// Calculation for maxAwaitTimeMS is taken from time.Duration.Milliseconds (added in Go 1.13).
@@ -702,26 +886,34 @@ func (s *Server) check() (description.Server, error) {
 			s.conn.setSocketTimeout(s.cfg.heartbeatTimeout)
 			err = baseOperation.Execute(s.heartbeatCtx)
 		}
-		durationNanos = time.Since(start).Nanoseconds()
+
+		duration = time.Since(start)
+
+		// We need to record an RTT sample in the polling case so that if the server
+		// is < 4.4, or if polling is specified by the user, then the
+		// RTT-short-circuit feature of CSOT is not disabled.
+		if !streamable {
+			s.rttMonitor.addSample(duration)
+		}
 
 		if err == nil {
 			tempDesc := baseOperation.Result(s.address)
 			descPtr = &tempDesc
-			s.publishServerHeartbeatSucceededEvent(s.conn.ID(), durationNanos, tempDesc, s.conn.getCurrentlyStreaming() || streamable)
+			s.publishServerHeartbeatSucceededEvent(s.conn.ID(), duration, tempDesc, s.conn.getCurrentlyStreaming() || streamable)
 		} else {
 			// Close the connection here rather than below so we ensure we're not closing a connection that wasn't
 			// successfully created.
 			if s.conn != nil {
 				_ = s.conn.close()
 			}
-			s.publishServerHeartbeatFailedEvent(s.conn.ID(), durationNanos, err, s.conn.getCurrentlyStreaming() || streamable)
+			s.publishServerHeartbeatFailedEvent(s.conn.ID(), duration, err, s.conn.getCurrentlyStreaming() || streamable)
 		}
 	}
 
 	if descPtr != nil {
-		// The check was successful. Set the average RTT and return.
+		// The check was successful. Set the average RTT and the 90th percentile RTT and return.
 		desc := *descPtr
-		desc = desc.SetAverageRTT(s.rttMonitor.getRTT())
+		desc = desc.SetAverageRTT(s.rttMonitor.EWMA())
 		desc.HeartbeatInterval = s.cfg.heartbeatInterval
 		return desc, nil
 	}
@@ -756,17 +948,27 @@ func extractTopologyVersion(err error) *description.TopologyVersion {
 	return nil
 }
 
+// RTTMonitor returns this server's round-trip-time monitor.
+func (s *Server) RTTMonitor() driver.RTTMonitor {
+	return s.rttMonitor
+}
+
+// OperationCount returns the current number of in-progress operations for this server.
+func (s *Server) OperationCount() int64 {
+	return atomic.LoadInt64(&s.operationCount)
+}
+
 // String implements the Stringer interface.
 func (s *Server) String() string {
 	desc := s.Description()
-	connState := atomic.LoadInt32(&s.connectionstate)
+	state := atomic.LoadInt64(&s.state)
 	str := fmt.Sprintf("Addr: %s, Type: %s, State: %s",
-		s.address, desc.Kind, connectionStateString(connState))
+		s.address, desc.Kind, serverStateString(state))
 	if len(desc.Tags) != 0 {
 		str += fmt.Sprintf(", Tag sets: %s", desc.Tags)
 	}
-	if connState == connected {
-		str += fmt.Sprintf(", Average RTT: %d", desc.AverageRTT)
+	if state == serverConnected {
+		str += fmt.Sprintf(", Average RTT: %s, Min RTT: %s", desc.AverageRTT, s.RTTMonitor().Min())
 	}
 	if desc.LastError != nil {
 		str += fmt.Sprintf(", Last error: %s", desc.LastError)
@@ -805,17 +1007,25 @@ func (ss *ServerSubscription) Unsubscribe() error {
 
 // publishes a ServerOpeningEvent to indicate the server is being initialized
 func (s *Server) publishServerOpeningEvent(addr address.Address) {
+	if s == nil {
+		return
+	}
+
 	serverOpening := &event.ServerOpeningEvent{
 		Address:    addr,
 		TopologyID: s.topologyID,
 	}
 
-	if s != nil && s.cfg.serverMonitor != nil && s.cfg.serverMonitor.ServerOpening != nil {
+	if s.cfg.serverMonitor != nil && s.cfg.serverMonitor.ServerOpening != nil {
 		s.cfg.serverMonitor.ServerOpening(serverOpening)
+	}
+
+	if mustLogServerMessage(s) {
+		logServerMessage(s, logger.TopologyServerOpening)
 	}
 }
 
-// publishes a ServerHeartbeatStartedEvent to indicate an ismaster command has started
+// publishes a ServerHeartbeatStartedEvent to indicate a hello command has started
 func (s *Server) publishServerHeartbeatStartedEvent(connectionID string, await bool) {
 	serverHeartbeatStarted := &event.ServerHeartbeatStartedEvent{
 		ConnectionID: connectionID,
@@ -825,15 +1035,22 @@ func (s *Server) publishServerHeartbeatStartedEvent(connectionID string, await b
 	if s != nil && s.cfg.serverMonitor != nil && s.cfg.serverMonitor.ServerHeartbeatStarted != nil {
 		s.cfg.serverMonitor.ServerHeartbeatStarted(serverHeartbeatStarted)
 	}
+
+	if mustLogServerMessage(s) {
+		logServerMessage(s, logger.TopologyServerHeartbeatStarted,
+			logger.KeyAwaited, await)
+	}
 }
 
-// publishes a ServerHeartbeatSucceededEvent to indicate ismaster has succeeded
+// publishes a ServerHeartbeatSucceededEvent to indicate hello has succeeded
 func (s *Server) publishServerHeartbeatSucceededEvent(connectionID string,
-	durationNanos int64,
+	duration time.Duration,
 	desc description.Server,
-	await bool) {
+	await bool,
+) {
 	serverHeartbeatSucceeded := &event.ServerHeartbeatSucceededEvent{
-		DurationNanos: durationNanos,
+		DurationNanos: duration.Nanoseconds(),
+		Duration:      duration,
 		Reply:         desc,
 		ConnectionID:  connectionID,
 		Awaited:       await,
@@ -842,15 +1059,38 @@ func (s *Server) publishServerHeartbeatSucceededEvent(connectionID string,
 	if s != nil && s.cfg.serverMonitor != nil && s.cfg.serverMonitor.ServerHeartbeatSucceeded != nil {
 		s.cfg.serverMonitor.ServerHeartbeatSucceeded(serverHeartbeatSucceeded)
 	}
+
+	if mustLogServerMessage(s) {
+		descRaw, _ := bson.Marshal(struct {
+			description.Server `bson:",inline"`
+			Ok                 int32
+		}{
+			Server: desc,
+			Ok: func() int32 {
+				if desc.LastError != nil {
+					return 0
+				}
+
+				return 1
+			}(),
+		})
+
+		logServerMessage(s, logger.TopologyServerHeartbeatSucceeded,
+			logger.KeyAwaited, await,
+			logger.KeyDurationMS, duration.Milliseconds(),
+			logger.KeyReply, bson.Raw(descRaw).String())
+	}
 }
 
-// publishes a ServerHeartbeatFailedEvent to indicate ismaster has failed
+// publishes a ServerHeartbeatFailedEvent to indicate hello has failed
 func (s *Server) publishServerHeartbeatFailedEvent(connectionID string,
-	durationNanos int64,
+	duration time.Duration,
 	err error,
-	await bool) {
+	await bool,
+) {
 	serverHeartbeatFailed := &event.ServerHeartbeatFailedEvent{
-		DurationNanos: durationNanos,
+		DurationNanos: duration.Nanoseconds(),
+		Duration:      duration,
 		Failure:       err,
 		ConnectionID:  connectionID,
 		Awaited:       await,
@@ -858,6 +1098,13 @@ func (s *Server) publishServerHeartbeatFailedEvent(connectionID string,
 
 	if s != nil && s.cfg.serverMonitor != nil && s.cfg.serverMonitor.ServerHeartbeatFailed != nil {
 		s.cfg.serverMonitor.ServerHeartbeatFailed(serverHeartbeatFailed)
+	}
+
+	if mustLogServerMessage(s) {
+		logServerMessage(s, logger.TopologyServerHeartbeatFailed,
+			logger.KeyAwaited, await,
+			logger.KeyDurationMS, duration.Milliseconds(),
+			logger.KeyFailure, err.Error())
 	}
 }
 

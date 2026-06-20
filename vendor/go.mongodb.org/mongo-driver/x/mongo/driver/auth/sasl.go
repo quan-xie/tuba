@@ -19,7 +19,7 @@ import (
 // SaslClient is the client piece of a sasl conversation.
 type SaslClient interface {
 	Start() (string, []byte, error)
-	Next(challenge []byte) ([]byte, error)
+	Next(ctx context.Context, challenge []byte) ([]byte, error)
 	Completed() bool
 }
 
@@ -73,7 +73,7 @@ func (sc *saslConversation) FirstMessage() (bsoncore.Document, error) {
 		bsoncore.AppendBinaryElement(nil, "payload", 0x00, payload),
 	}
 	if sc.speculative {
-		// The "db" field is only appended for speculative auth because the isMaster command is executed against admin
+		// The "db" field is only appended for speculative auth because the hello command is executed against admin
 		// so this is needed to tell the server the user's auth source. For a non-speculative attempt, the SASL commands
 		// will be executed against the auth source.
 		saslCmdElements = append(saslCmdElements, bsoncore.AppendStringElement(nil, "db", sc.source))
@@ -102,7 +102,7 @@ func (sc *saslConversation) Finish(ctx context.Context, cfg *Config, firstRespon
 	var saslResp saslResponse
 	err := bson.Unmarshal(firstResponse, &saslResp)
 	if err != nil {
-		fullErr := fmt.Errorf("unmarshal error: %v", err)
+		fullErr := fmt.Errorf("unmarshal error: %w", err)
 		return newError(fullErr, sc.mechanism)
 	}
 
@@ -118,7 +118,7 @@ func (sc *saslConversation) Finish(ctx context.Context, cfg *Config, firstRespon
 			return nil
 		}
 
-		payload, err = sc.client.Next(saslResp.Payload)
+		payload, err = sc.client.Next(ctx, saslResp.Payload)
 		if err != nil {
 			return newError(err, sc.mechanism)
 		}
@@ -135,7 +135,8 @@ func (sc *saslConversation) Finish(ctx context.Context, cfg *Config, firstRespon
 		saslContinueCmd := operation.NewCommand(doc).
 			Database(sc.source).
 			Deployment(driver.SingleConnectionDeployment{cfg.Connection}).
-			ClusterClock(cfg.ClusterClock)
+			ClusterClock(cfg.ClusterClock).
+			ServerAPI(cfg.ServerAPI)
 
 		err = saslContinueCmd.Execute(ctx)
 		if err != nil {
@@ -145,7 +146,7 @@ func (sc *saslConversation) Finish(ctx context.Context, cfg *Config, firstRespon
 
 		err = bson.Unmarshal(rdr, &saslResp)
 		if err != nil {
-			fullErr := fmt.Errorf("unmarshal error: %v", err)
+			fullErr := fmt.Errorf("unmarshal error: %w", err)
 			return newError(fullErr, sc.mechanism)
 		}
 	}
@@ -155,7 +156,6 @@ func (sc *saslConversation) Finish(ctx context.Context, cfg *Config, firstRespon
 func ConductSaslConversation(ctx context.Context, cfg *Config, authSource string, client SaslClient) error {
 	// Create a non-speculative SASL conversation.
 	conversation := newSaslConversation(client, authSource, false)
-
 	saslStartDoc, err := conversation.FirstMessage()
 	if err != nil {
 		return newError(err, conversation.mechanism)
@@ -163,7 +163,8 @@ func ConductSaslConversation(ctx context.Context, cfg *Config, authSource string
 	saslStartCmd := operation.NewCommand(saslStartDoc).
 		Database(authSource).
 		Deployment(driver.SingleConnectionDeployment{cfg.Connection}).
-		ClusterClock(cfg.ClusterClock)
+		ClusterClock(cfg.ClusterClock).
+		ServerAPI(cfg.ServerAPI)
 	if err := saslStartCmd.Execute(ctx); err != nil {
 		return newError(err, conversation.mechanism)
 	}
