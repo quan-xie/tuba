@@ -6,6 +6,8 @@
 
 package options
 
+import "time"
+
 // DefaultIndexOptions represents the default options for a collection to apply on new indexes. This type can be used
 // when creating a new collection through the CreateCollectionOptions.SetDefaultIndexOptions method.
 type DefaultIndexOptions struct {
@@ -26,15 +28,86 @@ func (d *DefaultIndexOptions) SetStorageEngine(storageEngine interface{}) *Defau
 	return d
 }
 
+// TimeSeriesOptions specifies options on a time-series collection.
+type TimeSeriesOptions struct {
+	// TimeField is the top-level field to be used for time. Inserted documents must have this field,
+	// and the field must be of the BSON UTC datetime type (0x9).
+	TimeField string
+
+	// MetaField is the name of the top-level field describing the series. This field is used to group
+	// related data and may be of any BSON type, except for array. This name may not be the same
+	// as the TimeField or _id. This field is optional.
+	MetaField *string
+
+	// Granularity is the granularity of time-series data. Allowed granularity options are
+	// "seconds", "minutes" and "hours". This field is optional.
+	Granularity *string
+
+	// BucketMaxSpan is the maximum range of time values for a bucket. The
+	// time.Duration is rounded down to the nearest second and applied as
+	// the command option: "bucketRoundingSeconds". This field is optional.
+	BucketMaxSpan *time.Duration
+
+	// BucketRounding is used to determine the minimum time boundary when
+	// opening a new bucket by rounding the first timestamp down to the next
+	// multiple of this value. The time.Duration is rounded down to the
+	// nearest second and applied as the command option:
+	// "bucketRoundingSeconds". This field is optional.
+	BucketRounding *time.Duration
+}
+
+// TimeSeries creates a new TimeSeriesOptions instance.
+func TimeSeries() *TimeSeriesOptions {
+	return &TimeSeriesOptions{}
+}
+
+// SetTimeField sets the value for the TimeField.
+func (tso *TimeSeriesOptions) SetTimeField(timeField string) *TimeSeriesOptions {
+	tso.TimeField = timeField
+	return tso
+}
+
+// SetMetaField sets the value for the MetaField.
+func (tso *TimeSeriesOptions) SetMetaField(metaField string) *TimeSeriesOptions {
+	tso.MetaField = &metaField
+	return tso
+}
+
+// SetGranularity sets the value for Granularity.
+func (tso *TimeSeriesOptions) SetGranularity(granularity string) *TimeSeriesOptions {
+	tso.Granularity = &granularity
+	return tso
+}
+
+// SetBucketMaxSpan sets the value for BucketMaxSpan.
+func (tso *TimeSeriesOptions) SetBucketMaxSpan(dur time.Duration) *TimeSeriesOptions {
+	tso.BucketMaxSpan = &dur
+
+	return tso
+}
+
+// SetBucketRounding sets the value for BucketRounding.
+func (tso *TimeSeriesOptions) SetBucketRounding(dur time.Duration) *TimeSeriesOptions {
+	tso.BucketRounding = &dur
+
+	return tso
+}
+
 // CreateCollectionOptions represents options that can be used to configure a CreateCollection operation.
 type CreateCollectionOptions struct {
-	// Specifies if the collection is capped (see https://docs.mongodb.com/manual/core/capped-collections/). If true,
+	// Specifies if the collection is capped (see https://www.mongodb.com/docs/manual/core/capped-collections/). If true,
 	// the SizeInBytes option must also be specified. The default value is false.
 	Capped *bool
 
 	// Specifies the default collation for the new collection. This option is only valid for MongoDB versions >= 3.4.
 	// For previous server versions, the driver will return an error if this option is used. The default value is nil.
 	Collation *Collation
+
+	// Specifies how change streams opened against the collection can return pre- and post-images of updated
+	// documents. The value must be a document in the form {<option name>: <options>}. This option is only valid for
+	// MongoDB versions >= 6.0. The default value is nil, which means that change streams opened against the collection
+	// will not return pre- and post-images of updated documents in any way.
+	ChangeStreamPreAndPostImages interface{}
 
 	// Specifies a default configuration for indexes on the collection. This option is only valid for MongoDB versions
 	// >= 3.4. The default value is nil, meaning indexes will be configured using server defaults.
@@ -55,21 +128,47 @@ type CreateCollectionOptions struct {
 	StorageEngine interface{}
 
 	// Specifies what should happen if a document being inserted does not pass validation. Valid values are "error" and
-	// "warn". See https://docs.mongodb.com/manual/core/schema-validation/#accept-or-reject-invalid-documents for more
+	// "warn". See https://www.mongodb.com/docs/manual/core/schema-validation/#accept-or-reject-invalid-documents for more
 	// information. This option is only valid for MongoDB versions >= 3.2. The default value is "error".
 	ValidationAction *string
 
 	// Specifies how strictly the server applies validation rules to existing documents in the collection during update
 	// operations. Valid values are "off", "strict", and "moderate". See
-	// https://docs.mongodb.com/manual/core/schema-validation/#existing-documents for more information. This option is
+	// https://www.mongodb.com/docs/manual/core/schema-validation/#existing-documents for more information. This option is
 	// only valid for MongoDB versions >= 3.2. The default value is "strict".
 	ValidationLevel *string
 
 	// A document specifying validation rules for the collection. See
-	// https://docs.mongodb.com/manual/core/schema-validation/ for more information about schema validation. This option
+	// https://www.mongodb.com/docs/manual/core/schema-validation/ for more information about schema validation. This option
 	// is only valid for MongoDB versions >= 3.2. The default value is nil, meaning no validator will be used for the
 	// collection.
 	Validator interface{}
+
+	// Value indicating after how many seconds old time-series data should be deleted. See
+	// https://www.mongodb.com/docs/manual/reference/command/create/ for supported options, and
+	// https://www.mongodb.com/docs/manual/core/timeseries-collections/ for more information on time-series
+	// collections.
+	//
+	// This option is only valid for MongoDB versions >= 5.0
+	ExpireAfterSeconds *int64
+
+	// Options for specifying a time-series collection. See
+	// https://www.mongodb.com/docs/manual/reference/command/create/ for supported options, and
+	// https://www.mongodb.com/docs/manual/core/timeseries-collections/ for more information on time-series
+	// collections.
+	//
+	// This option is only valid for MongoDB versions >= 5.0
+	TimeSeriesOptions *TimeSeriesOptions
+
+	// EncryptedFields configures encrypted fields.
+	//
+	// This option is only valid for MongoDB versions >= 6.0
+	EncryptedFields interface{}
+
+	// ClusteredIndex is used to create a collection with a clustered index.
+	//
+	// This option is only valid for MongoDB versions >= 5.3
+	ClusteredIndex interface{}
 }
 
 // CreateCollection creates a new CreateCollectionOptions instance.
@@ -86,6 +185,12 @@ func (c *CreateCollectionOptions) SetCapped(capped bool) *CreateCollectionOption
 // SetCollation sets the value for the Collation field.
 func (c *CreateCollectionOptions) SetCollation(collation *Collation) *CreateCollectionOptions {
 	c.Collation = collation
+	return c
+}
+
+// SetChangeStreamPreAndPostImages sets the value for the ChangeStreamPreAndPostImages field.
+func (c *CreateCollectionOptions) SetChangeStreamPreAndPostImages(csppi interface{}) *CreateCollectionOptions {
+	c.ChangeStreamPreAndPostImages = &csppi
 	return c
 }
 
@@ -131,8 +236,35 @@ func (c *CreateCollectionOptions) SetValidator(validator interface{}) *CreateCol
 	return c
 }
 
+// SetExpireAfterSeconds sets the value for the ExpireAfterSeconds field.
+func (c *CreateCollectionOptions) SetExpireAfterSeconds(eas int64) *CreateCollectionOptions {
+	c.ExpireAfterSeconds = &eas
+	return c
+}
+
+// SetTimeSeriesOptions sets the options for time-series collections.
+func (c *CreateCollectionOptions) SetTimeSeriesOptions(timeSeriesOpts *TimeSeriesOptions) *CreateCollectionOptions {
+	c.TimeSeriesOptions = timeSeriesOpts
+	return c
+}
+
+// SetEncryptedFields sets the encrypted fields for encrypted collections.
+func (c *CreateCollectionOptions) SetEncryptedFields(encryptedFields interface{}) *CreateCollectionOptions {
+	c.EncryptedFields = encryptedFields
+	return c
+}
+
+// SetClusteredIndex sets the value for the ClusteredIndex field.
+func (c *CreateCollectionOptions) SetClusteredIndex(clusteredIndex interface{}) *CreateCollectionOptions {
+	c.ClusteredIndex = clusteredIndex
+	return c
+}
+
 // MergeCreateCollectionOptions combines the given CreateCollectionOptions instances into a single
 // CreateCollectionOptions in a last-one-wins fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeCreateCollectionOptions(opts ...*CreateCollectionOptions) *CreateCollectionOptions {
 	cc := CreateCollection()
 
@@ -146,6 +278,9 @@ func MergeCreateCollectionOptions(opts ...*CreateCollectionOptions) *CreateColle
 		}
 		if opt.Collation != nil {
 			cc.Collation = opt.Collation
+		}
+		if opt.ChangeStreamPreAndPostImages != nil {
+			cc.ChangeStreamPreAndPostImages = opt.ChangeStreamPreAndPostImages
 		}
 		if opt.DefaultIndexOptions != nil {
 			cc.DefaultIndexOptions = opt.DefaultIndexOptions
@@ -167,6 +302,18 @@ func MergeCreateCollectionOptions(opts ...*CreateCollectionOptions) *CreateColle
 		}
 		if opt.Validator != nil {
 			cc.Validator = opt.Validator
+		}
+		if opt.ExpireAfterSeconds != nil {
+			cc.ExpireAfterSeconds = opt.ExpireAfterSeconds
+		}
+		if opt.TimeSeriesOptions != nil {
+			cc.TimeSeriesOptions = opt.TimeSeriesOptions
+		}
+		if opt.EncryptedFields != nil {
+			cc.EncryptedFields = opt.EncryptedFields
+		}
+		if opt.ClusteredIndex != nil {
+			cc.ClusteredIndex = opt.ClusteredIndex
 		}
 	}
 
@@ -193,6 +340,9 @@ func (c *CreateViewOptions) SetCollation(collation *Collation) *CreateViewOption
 
 // MergeCreateViewOptions combines the given CreateViewOptions instances into a single CreateViewOptions in a
 // last-one-wins fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeCreateViewOptions(opts ...*CreateViewOptions) *CreateViewOptions {
 	cv := CreateView()
 

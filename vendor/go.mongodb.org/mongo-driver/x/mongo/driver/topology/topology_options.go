@@ -7,406 +7,425 @@
 package topology
 
 import (
-	"bytes"
+	"context"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
-	"errors"
 	"fmt"
-	"io/ioutil"
-	"strings"
+	"net/http"
 	"time"
 
 	"go.mongodb.org/mongo-driver/event"
+	"go.mongodb.org/mongo-driver/internal/logger"
+	"go.mongodb.org/mongo-driver/mongo/description"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/auth"
-	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/ocsp"
 	"go.mongodb.org/mongo-driver/x/mongo/driver/operation"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/session"
 )
 
-// Option is a configuration option for a topology.
-type Option func(*config) error
+const defaultServerSelectionTimeout = 30 * time.Second
 
-type config struct {
-	mode                   MonitorMode
-	replicaSetName         string
-	seedList               []string
-	serverOpts             []ServerOption
-	cs                     connstring.ConnString // This must not be used for any logic in topology.Topology.
-	uri                    string
-	serverSelectionTimeout time.Duration
-	serverMonitor          *event.ServerMonitor
+// Config is used to construct a topology.
+type Config struct {
+	Mode                   MonitorMode
+	ReplicaSetName         string
+	SeedList               []string
+	ServerOpts             []ServerOption
+	URI                    string
+	ServerSelectionTimeout time.Duration
+	ServerMonitor          *event.ServerMonitor
+	SRVMaxHosts            int
+	SRVServiceName         string
+	LoadBalanced           bool
+	logger                 *logger.Logger
 }
 
-func newConfig(opts ...Option) (*config, error) {
-	cfg := &config{
-		seedList:               []string{"localhost:27017"},
-		serverSelectionTimeout: 30 * time.Second,
+// ConvertToDriverAPIOptions converts a options.ServerAPIOptions instance to a driver.ServerAPIOptions.
+func ConvertToDriverAPIOptions(s *options.ServerAPIOptions) *driver.ServerAPIOptions {
+	driverOpts := driver.NewServerAPIOptions(string(s.ServerAPIVersion))
+	if s.Strict != nil {
+		driverOpts.SetStrict(*s.Strict)
+	}
+	if s.DeprecationErrors != nil {
+		driverOpts.SetDeprecationErrors(*s.DeprecationErrors)
+	}
+	return driverOpts
+}
+
+func newLogger(opts *options.LoggerOptions) (*logger.Logger, error) {
+	if opts == nil {
+		opts = options.Logger()
 	}
 
-	for _, opt := range opts {
-		err := opt(cfg)
+	componentLevels := make(map[logger.Component]logger.Level)
+	for component, level := range opts.ComponentLevels {
+		componentLevels[logger.Component(component)] = logger.Level(level)
+	}
+
+	log, err := logger.New(opts.Sink, opts.MaxDocumentLength, componentLevels)
+	if err != nil {
+		return nil, fmt.Errorf("error creating logger: %w", err)
+	}
+
+	return log, nil
+}
+
+// convertOIDCArgs converts the internal *driver.OIDCArgs into the equivalent
+// public type *options.OIDCArgs.
+func convertOIDCArgs(args *driver.OIDCArgs) *options.OIDCArgs {
+	if args == nil {
+		return nil
+	}
+	return &options.OIDCArgs{
+		Version:      args.Version,
+		IDPInfo:      (*options.IDPInfo)(args.IDPInfo),
+		RefreshToken: args.RefreshToken,
+	}
+}
+
+// ConvertCreds takes an [options.Credential] and returns the equivalent
+// [driver.Cred].
+func ConvertCreds(cred *options.Credential) *driver.Cred {
+	if cred == nil {
+		return nil
+	}
+
+	var oidcMachineCallback auth.OIDCCallback
+	if cred.OIDCMachineCallback != nil {
+		oidcMachineCallback = func(ctx context.Context, args *driver.OIDCArgs) (*driver.OIDCCredential, error) {
+			cred, err := cred.OIDCMachineCallback(ctx, convertOIDCArgs(args))
+			return (*driver.OIDCCredential)(cred), err
+		}
+	}
+
+	var oidcHumanCallback auth.OIDCCallback
+	if cred.OIDCHumanCallback != nil {
+		oidcHumanCallback = func(ctx context.Context, args *driver.OIDCArgs) (*driver.OIDCCredential, error) {
+			cred, err := cred.OIDCHumanCallback(ctx, convertOIDCArgs(args))
+			return (*driver.OIDCCredential)(cred), err
+		}
+	}
+
+	return &auth.Cred{
+		Source:              cred.AuthSource,
+		Username:            cred.Username,
+		Password:            cred.Password,
+		PasswordSet:         cred.PasswordSet,
+		Props:               cred.AuthMechanismProperties,
+		OIDCMachineCallback: oidcMachineCallback,
+		OIDCHumanCallback:   oidcHumanCallback,
+	}
+}
+
+// NewConfig will translate data from client options into a topology config for
+// building non-default deployments.
+func NewConfig(co *options.ClientOptions, clock *session.ClusterClock) (*Config, error) {
+	var authenticator driver.Authenticator
+	var err error
+	if co.Auth != nil {
+		authenticator, err = auth.CreateAuthenticator(
+			co.Auth.AuthMechanism,
+			ConvertCreds(co.Auth),
+			co.HTTPClient,
+		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("error creating authenticator: %w", err)
 		}
 	}
-
-	return cfg, nil
+	return NewConfigWithAuthenticator(co, clock, authenticator)
 }
 
-// WithConnString configures the topology using the connection string.
-func WithConnString(fn func(connstring.ConnString) connstring.ConnString) Option {
-	return func(c *config) error {
-		cs := fn(c.cs)
-		c.cs = cs
+// NewConfigWithAuthenticator will translate data from client options into a
+// topology config for building non-default deployments. Server and topology
+// options are not honored if a custom deployment is used. It uses a passed in
+// authenticator to authenticate the connection.
+func NewConfigWithAuthenticator(
+	co *options.ClientOptions,
+	clock *session.ClusterClock,
+	authenticator driver.Authenticator,
+) (*Config, error) {
+	var serverAPI *driver.ServerAPIOptions
 
-		if cs.ServerSelectionTimeoutSet {
-			c.serverSelectionTimeout = cs.ServerSelectionTimeout
-		}
+	if err := co.Validate(); err != nil {
+		return nil, err
+	}
 
-		var connOpts []ConnectionOption
+	var connOpts []ConnectionOption
+	var serverOpts []ServerOption
 
-		if cs.AppName != "" {
-			c.serverOpts = append(c.serverOpts, WithServerAppName(func(string) string { return cs.AppName }))
-		}
+	cfgp := &Config{}
 
-		if cs.Connect == connstring.SingleConnect || (cs.DirectConnectionSet && cs.DirectConnection) {
-			c.mode = SingleMode
-		}
+	// Set the default "ServerSelectionTimeout" to 30 seconds.
+	cfgp.ServerSelectionTimeout = defaultServerSelectionTimeout
 
-		c.seedList = cs.Hosts
+	// Set the default "SeedList" to localhost.
+	cfgp.SeedList = []string{"localhost:27017"}
 
-		if cs.ConnectTimeout > 0 {
-			c.serverOpts = append(c.serverOpts, WithHeartbeatTimeout(func(time.Duration) time.Duration { return cs.ConnectTimeout }))
-			connOpts = append(connOpts, WithConnectTimeout(func(time.Duration) time.Duration { return cs.ConnectTimeout }))
-		}
+	// TODO(GODRIVER-814): Add tests for topology, server, and connection related options.
 
-		if cs.SocketTimeoutSet {
-			connOpts = append(
-				connOpts,
-				WithReadTimeout(func(time.Duration) time.Duration { return cs.SocketTimeout }),
-				WithWriteTimeout(func(time.Duration) time.Duration { return cs.SocketTimeout }),
-			)
-		}
+	// ServerAPIOptions need to be handled early as other client and server options below reference
+	// c.serverAPI and serverOpts.serverAPI.
+	if co.ServerAPIOptions != nil {
+		serverAPI = ConvertToDriverAPIOptions(co.ServerAPIOptions)
+		serverOpts = append(serverOpts, WithServerAPI(func(*driver.ServerAPIOptions) *driver.ServerAPIOptions {
+			return serverAPI
+		}))
+	}
 
-		if cs.HeartbeatInterval > 0 {
-			c.serverOpts = append(c.serverOpts, WithHeartbeatInterval(func(time.Duration) time.Duration { return cs.HeartbeatInterval }))
-		}
+	cfgp.URI = co.GetURI()
 
-		if cs.MaxConnIdleTime > 0 {
-			connOpts = append(connOpts, WithIdleTimeout(func(time.Duration) time.Duration { return cs.MaxConnIdleTime }))
-		}
+	if co.SRVServiceName != nil {
+		cfgp.SRVServiceName = *co.SRVServiceName
+	}
 
-		if cs.MaxPoolSizeSet {
-			c.serverOpts = append(c.serverOpts, WithMaxConnections(func(uint64) uint64 { return cs.MaxPoolSize }))
-		}
+	if co.SRVMaxHosts != nil {
+		cfgp.SRVMaxHosts = *co.SRVMaxHosts
+	}
 
-		if cs.MinPoolSizeSet {
-			c.serverOpts = append(c.serverOpts, WithMinConnections(func(u uint64) uint64 { return cs.MinPoolSize }))
-		}
+	// AppName
+	var appName string
+	if co.AppName != nil {
+		appName = *co.AppName
 
-		if cs.ReplicaSet != "" {
-			c.replicaSetName = cs.ReplicaSet
-		}
+		serverOpts = append(serverOpts, WithServerAppName(func(string) string {
+			return appName
+		}))
+	}
+	// Compressors & ZlibLevel
+	var comps []string
+	if len(co.Compressors) > 0 {
+		comps = co.Compressors
 
-		var x509Username string
-		if cs.SSL {
-			tlsConfig := new(tls.Config)
+		connOpts = append(connOpts, WithCompressors(
+			func(compressors []string) []string {
+				return append(compressors, comps...)
+			},
+		))
 
-			if cs.SSLCaFileSet {
-				err := addCACertFromFile(tlsConfig, cs.SSLCaFile)
-				if err != nil {
-					return err
-				}
+		for _, comp := range comps {
+			switch comp {
+			case "zlib":
+				connOpts = append(connOpts, WithZlibLevel(func(*int) *int {
+					return co.ZlibLevel
+				}))
+			case "zstd":
+				connOpts = append(connOpts, WithZstdLevel(func(*int) *int {
+					return co.ZstdLevel
+				}))
 			}
-
-			if cs.SSLInsecure {
-				tlsConfig.InsecureSkipVerify = true
-			}
-
-			if cs.SSLClientCertificateKeyFileSet {
-				var keyPasswd string
-				if cs.SSLClientCertificateKeyPasswordSet && cs.SSLClientCertificateKeyPassword != nil {
-					keyPasswd = cs.SSLClientCertificateKeyPassword()
-				}
-				s, err := addClientCertFromFile(tlsConfig, cs.SSLClientCertificateKeyFile, keyPasswd)
-				if err != nil {
-					return err
-				}
-
-				// The Go x509 package gives the subject with the pairs in reverse order that we want.
-				pairs := strings.Split(s, ",")
-				b := bytes.NewBufferString("")
-
-				for i := len(pairs) - 1; i >= 0; i-- {
-					b.WriteString(pairs[i])
-
-					if i > 0 {
-						b.WriteString(",")
-					}
-				}
-
-				x509Username = b.String()
-			}
-
-			connOpts = append(connOpts, WithTLSConfig(func(*tls.Config) *tls.Config { return tlsConfig }))
 		}
 
-		if cs.Username != "" || cs.AuthMechanism == auth.MongoDBX509 || cs.AuthMechanism == auth.GSSAPI {
-			cred := &auth.Cred{
-				Source:      "admin",
-				Username:    cs.Username,
-				Password:    cs.Password,
-				PasswordSet: cs.PasswordSet,
-				Props:       cs.AuthMechanismProperties,
-			}
+		serverOpts = append(serverOpts, WithCompressionOptions(
+			func(opts ...string) []string { return append(opts, comps...) },
+		))
+	}
 
-			if cs.AuthSource != "" {
-				cred.Source = cs.AuthSource
-			} else {
-				switch cs.AuthMechanism {
-				case auth.MongoDBX509:
-					if cred.Username == "" {
-						cred.Username = x509Username
-					}
-					fallthrough
-				case auth.GSSAPI, auth.PLAIN:
-					cred.Source = "$external"
-				default:
-					cred.Source = cs.Database
-				}
-			}
+	var loadBalanced bool
+	if co.LoadBalanced != nil {
+		loadBalanced = *co.LoadBalanced
+	}
 
-			authenticator, err := auth.CreateAuthenticator(cs.AuthMechanism, cred)
-			if err != nil {
-				return err
-			}
-
-			connOpts = append(connOpts, WithHandshaker(func(h Handshaker) Handshaker {
-				options := &auth.HandshakeOptions{
-					AppName:       cs.AppName,
-					Authenticator: authenticator,
-					Compressors:   cs.Compressors,
-				}
-				if cs.AuthMechanism == "" {
-					// Required for SASL mechanism negotiation during handshake
-					options.DBUser = cred.Source + "." + cred.Username
-				}
-				return auth.Handshaker(h, options)
-			}))
-		} else {
-			// We need to add a non-auth Handshaker to the connection options
-			connOpts = append(connOpts, WithHandshaker(func(h driver.Handshaker) driver.Handshaker {
-				return operation.NewIsMaster().AppName(cs.AppName).Compressors(cs.Compressors)
-			}))
+	// Handshaker
+	var handshaker func(driver.Handshaker) driver.Handshaker
+	if authenticator != nil {
+		handshakeOpts := &auth.HandshakeOptions{
+			AppName:       appName,
+			Authenticator: authenticator,
+			Compressors:   comps,
+			ServerAPI:     serverAPI,
+			LoadBalanced:  loadBalanced,
+			ClusterClock:  clock,
 		}
 
-		if len(cs.Compressors) > 0 {
-			connOpts = append(connOpts, WithCompressors(func(compressors []string) []string {
-				return append(compressors, cs.Compressors...)
-			}))
-
-			for _, comp := range cs.Compressors {
-				switch comp {
-				case "zlib":
-					connOpts = append(connOpts, WithZlibLevel(func(level *int) *int {
-						return &cs.ZlibLevel
-					}))
-				case "zstd":
-					connOpts = append(connOpts, WithZstdLevel(func(level *int) *int {
-						return &cs.ZstdLevel
-					}))
-				}
+		if co.Auth.AuthMechanism == "" {
+			// Required for SASL mechanism negotiation during handshake
+			handshakeOpts.DBUser = co.Auth.AuthSource + "." + co.Auth.Username
+		}
+		if co.AuthenticateToAnything != nil && *co.AuthenticateToAnything {
+			// Authenticate arbiters
+			handshakeOpts.PerformAuthentication = func(description.Server) bool {
+				return true
 			}
-
-			c.serverOpts = append(c.serverOpts, WithCompressionOptions(func(opts ...string) []string {
-				return append(opts, cs.Compressors...)
-			}))
 		}
 
-		if len(connOpts) > 0 {
-			c.serverOpts = append(c.serverOpts, WithConnectionOptions(func(opts ...ConnectionOption) []ConnectionOption {
-				return append(opts, connOpts...)
-			}))
+		handshaker = func(driver.Handshaker) driver.Handshaker {
+			return auth.Handshaker(nil, handshakeOpts)
 		}
-
-		return nil
+	} else {
+		handshaker = func(driver.Handshaker) driver.Handshaker {
+			return operation.NewHello().
+				AppName(appName).
+				Compressors(comps).
+				ClusterClock(clock).
+				ServerAPI(serverAPI).
+				LoadBalanced(loadBalanced)
+		}
 	}
-}
 
-// WithMode configures the topology's monitor mode.
-func WithMode(fn func(MonitorMode) MonitorMode) Option {
-	return func(cfg *config) error {
-		cfg.mode = fn(cfg.mode)
-		return nil
+	connOpts = append(connOpts, WithHandshaker(handshaker))
+	// ConnectTimeout
+	if co.ConnectTimeout != nil {
+		serverOpts = append(serverOpts, WithHeartbeatTimeout(
+			func(time.Duration) time.Duration { return *co.ConnectTimeout },
+		))
+		connOpts = append(connOpts, WithConnectTimeout(
+			func(time.Duration) time.Duration { return *co.ConnectTimeout },
+		))
 	}
-}
-
-// WithReplicaSetName configures the topology's default replica set name.
-func WithReplicaSetName(fn func(string) string) Option {
-	return func(cfg *config) error {
-		cfg.replicaSetName = fn(cfg.replicaSetName)
-		return nil
+	// Dialer
+	if co.Dialer != nil {
+		connOpts = append(connOpts, WithDialer(
+			func(Dialer) Dialer { return co.Dialer },
+		))
 	}
-}
-
-// WithSeedList configures a topology's seed list.
-func WithSeedList(fn func(...string) []string) Option {
-	return func(cfg *config) error {
-		cfg.seedList = fn(cfg.seedList...)
-		return nil
+	// Direct
+	if co.Direct != nil && *co.Direct {
+		cfgp.Mode = SingleMode
 	}
-}
 
-// WithServerOptions configures a topology's server options for when a new server
-// needs to be created.
-func WithServerOptions(fn func(...ServerOption) []ServerOption) Option {
-	return func(cfg *config) error {
-		cfg.serverOpts = fn(cfg.serverOpts...)
-		return nil
+	// HeartbeatInterval
+	if co.HeartbeatInterval != nil {
+		serverOpts = append(serverOpts, WithHeartbeatInterval(
+			func(time.Duration) time.Duration { return *co.HeartbeatInterval },
+		))
 	}
-}
-
-// WithServerSelectionTimeout configures a topology's server selection timeout.
-// A server selection timeout of 0 means there is no timeout for server selection.
-func WithServerSelectionTimeout(fn func(time.Duration) time.Duration) Option {
-	return func(cfg *config) error {
-		cfg.serverSelectionTimeout = fn(cfg.serverSelectionTimeout)
-		return nil
+	// Hosts
+	cfgp.SeedList = []string{"localhost:27017"} // default host
+	if len(co.Hosts) > 0 {
+		cfgp.SeedList = co.Hosts
 	}
-}
 
-// WithTopologyServerMonitor configures the monitor for all SDAM events
-func WithTopologyServerMonitor(fn func(*event.ServerMonitor) *event.ServerMonitor) Option {
-	return func(cfg *config) error {
-		cfg.serverMonitor = fn(cfg.serverMonitor)
-		return nil
+	// MaxConIdleTime
+	if co.MaxConnIdleTime != nil {
+		serverOpts = append(serverOpts, WithConnectionPoolMaxIdleTime(
+			func(time.Duration) time.Duration { return *co.MaxConnIdleTime },
+		))
 	}
-}
-
-// WithURI specifies the URI that was used to create the topology.
-func WithURI(fn func(string) string) Option {
-	return func(cfg *config) error {
-		cfg.uri = fn(cfg.uri)
-		return nil
+	// MaxPoolSize
+	if co.MaxPoolSize != nil {
+		serverOpts = append(
+			serverOpts,
+			WithMaxConnections(func(uint64) uint64 { return *co.MaxPoolSize }),
+		)
 	}
-}
+	// MinPoolSize
+	if co.MinPoolSize != nil {
+		serverOpts = append(
+			serverOpts,
+			WithMinConnections(func(uint64) uint64 { return *co.MinPoolSize }),
+		)
+	}
+	// MaxConnecting
+	if co.MaxConnecting != nil {
+		serverOpts = append(
+			serverOpts,
+			WithMaxConnecting(func(uint64) uint64 { return *co.MaxConnecting }),
+		)
+	}
+	// PoolMonitor
+	if co.PoolMonitor != nil {
+		serverOpts = append(
+			serverOpts,
+			WithConnectionPoolMonitor(func(*event.PoolMonitor) *event.PoolMonitor { return co.PoolMonitor }),
+		)
+	}
+	// Monitor
+	if co.Monitor != nil {
+		connOpts = append(connOpts, WithMonitor(
+			func(*event.CommandMonitor) *event.CommandMonitor { return co.Monitor },
+		))
+	}
+	// ServerMonitor
+	if co.ServerMonitor != nil {
+		serverOpts = append(
+			serverOpts,
+			WithServerMonitor(func(*event.ServerMonitor) *event.ServerMonitor { return co.ServerMonitor }),
+		)
+		cfgp.ServerMonitor = co.ServerMonitor
+	}
+	// ReplicaSet
+	if co.ReplicaSet != nil {
+		cfgp.ReplicaSetName = *co.ReplicaSet
+	}
+	// ServerSelectionTimeout
+	if co.ServerSelectionTimeout != nil {
+		cfgp.ServerSelectionTimeout = *co.ServerSelectionTimeout
+	}
+	// SocketTimeout
+	if co.SocketTimeout != nil {
+		connOpts = append(
+			connOpts,
+			WithReadTimeout(func(time.Duration) time.Duration { return *co.SocketTimeout }),
+			WithWriteTimeout(func(time.Duration) time.Duration { return *co.SocketTimeout }),
+		)
+	}
+	// TLSConfig
+	if co.TLSConfig != nil {
+		connOpts = append(connOpts, WithTLSConfig(
+			func(*tls.Config) *tls.Config {
+				return co.TLSConfig
+			},
+		))
+	}
 
-// addCACertFromFile adds a root CA certificate to the configuration given a path
-// to the containing file.
-func addCACertFromFile(cfg *tls.Config, file string) error {
-	data, err := ioutil.ReadFile(file)
+	// HTTP Client
+	if co.HTTPClient != nil {
+		connOpts = append(connOpts, WithHTTPClient(
+			func(*http.Client) *http.Client {
+				return co.HTTPClient
+			},
+		))
+	}
+
+	// OCSP cache
+	ocspCache := ocsp.NewCache()
+	connOpts = append(
+		connOpts,
+		WithOCSPCache(func(ocsp.Cache) ocsp.Cache { return ocspCache }),
+	)
+
+	// Disable communication with external OCSP responders.
+	if co.DisableOCSPEndpointCheck != nil {
+		connOpts = append(
+			connOpts,
+			WithDisableOCSPEndpointCheck(func(bool) bool { return *co.DisableOCSPEndpointCheck }),
+		)
+	}
+
+	// LoadBalanced
+	if co.LoadBalanced != nil {
+		cfgp.LoadBalanced = *co.LoadBalanced
+
+		serverOpts = append(
+			serverOpts,
+			WithServerLoadBalanced(func(bool) bool { return *co.LoadBalanced }),
+		)
+		connOpts = append(
+			connOpts,
+			WithConnectionLoadBalanced(func(bool) bool { return *co.LoadBalanced }),
+		)
+	}
+
+	lgr, err := newLogger(co.LoggerOptions)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	certBytes, err := loadCert(data)
-	if err != nil {
-		return err
-	}
+	serverOpts = append(
+		serverOpts,
+		withLogger(func() *logger.Logger { return lgr }),
+		withServerMonitoringMode(co.ServerMonitoringMode),
+	)
 
-	cert, err := x509.ParseCertificate(certBytes)
-	if err != nil {
-		return err
-	}
+	cfgp.logger = lgr
 
-	if cfg.RootCAs == nil {
-		cfg.RootCAs = x509.NewCertPool()
-	}
+	serverOpts = append(
+		serverOpts,
+		WithClock(func(*session.ClusterClock) *session.ClusterClock { return clock }),
+		WithConnectionOptions(func(...ConnectionOption) []ConnectionOption { return connOpts }))
 
-	cfg.RootCAs.AddCert(cert)
+	cfgp.ServerOpts = serverOpts
 
-	return nil
-}
-
-func loadCert(data []byte) ([]byte, error) {
-	var certBlock *pem.Block
-
-	for certBlock == nil {
-		if data == nil || len(data) == 0 {
-			return nil, errors.New(".pem file must have both a CERTIFICATE and an RSA PRIVATE KEY section")
-		}
-
-		block, rest := pem.Decode(data)
-		if block == nil {
-			return nil, errors.New("invalid .pem file")
-		}
-
-		switch block.Type {
-		case "CERTIFICATE":
-			if certBlock != nil {
-				return nil, errors.New("multiple CERTIFICATE sections in .pem file")
-			}
-
-			certBlock = block
-		}
-
-		data = rest
-	}
-
-	return certBlock.Bytes, nil
-}
-
-// addClientCertFromFile adds a client certificate to the configuration given a path to the
-// containing file and returns the certificate's subject name.
-func addClientCertFromFile(cfg *tls.Config, clientFile, keyPasswd string) (string, error) {
-	data, err := ioutil.ReadFile(clientFile)
-	if err != nil {
-		return "", err
-	}
-
-	var currentBlock *pem.Block
-	var certBlock, certDecodedBlock, keyBlock []byte
-
-	remaining := data
-	start := 0
-	for {
-		currentBlock, remaining = pem.Decode(remaining)
-		if currentBlock == nil {
-			break
-		}
-
-		if currentBlock.Type == "CERTIFICATE" {
-			certBlock = data[start : len(data)-len(remaining)]
-			certDecodedBlock = currentBlock.Bytes
-			start += len(certBlock)
-		} else if strings.HasSuffix(currentBlock.Type, "PRIVATE KEY") {
-			if keyPasswd != "" && x509.IsEncryptedPEMBlock(currentBlock) {
-				var encoded bytes.Buffer
-				buf, err := x509.DecryptPEMBlock(currentBlock, []byte(keyPasswd))
-				if err != nil {
-					return "", err
-				}
-
-				pem.Encode(&encoded, &pem.Block{Type: currentBlock.Type, Bytes: buf})
-				keyBlock = encoded.Bytes()
-				start = len(data) - len(remaining)
-			} else {
-				keyBlock = data[start : len(data)-len(remaining)]
-				start += len(keyBlock)
-			}
-		}
-	}
-	if len(certBlock) == 0 {
-		return "", fmt.Errorf("failed to find CERTIFICATE")
-	}
-	if len(keyBlock) == 0 {
-		return "", fmt.Errorf("failed to find PRIVATE KEY")
-	}
-
-	cert, err := tls.X509KeyPair(certBlock, keyBlock)
-	if err != nil {
-		return "", err
-	}
-
-	cfg.Certificates = append(cfg.Certificates, cert)
-
-	// The documentation for the tls.X509KeyPair indicates that the Leaf certificate is not
-	// retained.
-	crt, err := x509.ParseCertificate(certDecodedBlock)
-	if err != nil {
-		return "", err
-	}
-
-	return x509CertSubject(crt), nil
+	return cfgp, nil
 }

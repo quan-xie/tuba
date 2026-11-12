@@ -8,6 +8,7 @@ package event // import "go.mongodb.org/mongo-driver/event"
 
 import (
 	"context"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -22,14 +23,41 @@ type CommandStartedEvent struct {
 	CommandName  string
 	RequestID    int64
 	ConnectionID string
+	// ServerConnectionID contains the connection ID from the server of the operation. If the server does not return
+	// this value (e.g. on MDB < 4.2), it is unset. If the server connection ID would cause an int32 overflow, then
+	// then this field will be nil.
+	//
+	// Deprecated: Use ServerConnectionID64.
+	ServerConnectionID *int32
+	// ServerConnectionID64 contains the connection ID from the server of the operation. If the server does not
+	// return this value (e.g. on MDB < 4.2), it is unset.
+	ServerConnectionID64 *int64
+	// ServiceID contains the ID of the server to which the command was sent if it is running behind a load balancer.
+	// Otherwise, it is unset.
+	ServiceID *primitive.ObjectID
 }
 
 // CommandFinishedEvent represents a generic command finishing.
 type CommandFinishedEvent struct {
+	// Deprecated: Use Duration instead.
 	DurationNanos int64
+	Duration      time.Duration
 	CommandName   string
+	DatabaseName  string
 	RequestID     int64
 	ConnectionID  string
+	// ServerConnectionID contains the connection ID from the server of the operation. If the server does not return
+	// this value (e.g. on MDB < 4.2), it is unset.If the server connection ID would cause an int32 overflow, then
+	// this field will be nil.
+	//
+	// Deprecated: Use ServerConnectionID64.
+	ServerConnectionID *int32
+	// ServerConnectionID64 contains the connection ID from the server of the operation. If the server does not
+	// return this value (e.g. on MDB < 4.2), it is unset.
+	ServerConnectionID64 *int64
+	// ServiceID contains the ID of the server to which the command was sent if it is running behind a load balancer.
+	// Otherwise, it is unset.
+	ServiceID *primitive.ObjectID
 }
 
 // CommandSucceededEvent represents an event generated when a command's execution succeeds.
@@ -58,19 +86,22 @@ const (
 	ReasonStale             = "stale"
 	ReasonConnectionErrored = "connectionError"
 	ReasonTimedOut          = "timeout"
+	ReasonError             = "error"
 )
 
 // strings for pool command monitoring types
 const (
-	ConnectionClosed   = "ConnectionClosed"
 	PoolCreated        = "ConnectionPoolCreated"
+	PoolReady          = "ConnectionPoolReady"
+	PoolCleared        = "ConnectionPoolCleared"
+	PoolClosedEvent    = "ConnectionPoolClosed"
 	ConnectionCreated  = "ConnectionCreated"
 	ConnectionReady    = "ConnectionReady"
+	ConnectionClosed   = "ConnectionClosed"
+	GetStarted         = "ConnectionCheckOutStarted"
 	GetFailed          = "ConnectionCheckOutFailed"
 	GetSucceeded       = "ConnectionCheckedOut"
 	ConnectionReturned = "ConnectionCheckedIn"
-	PoolCleared        = "ConnectionPoolCleared"
-	PoolClosedEvent    = "ConnectionPoolClosed"
 )
 
 // MonitorPoolOptions contains pool options as formatted in pool events
@@ -86,7 +117,13 @@ type PoolEvent struct {
 	Address      string              `json:"address"`
 	ConnectionID uint64              `json:"connectionId"`
 	PoolOptions  *MonitorPoolOptions `json:"options"`
+	Duration     time.Duration       `json:"duration"`
 	Reason       string              `json:"reason"`
+	// ServiceID is only set if the Type is PoolCleared and the server is deployed behind a load balancer. This field
+	// can be used to distinguish between individual servers in a load balanced deployment.
+	ServiceID    *primitive.ObjectID `json:"serviceId"`
+	Interruption bool                `json:"interruptInUseConnections"`
+	Error        error               `json:"error"`
 }
 
 // PoolMonitor is a function that allows the user to gain access to events occurring in the pool
@@ -139,7 +176,9 @@ type ServerHeartbeatStartedEvent struct {
 
 // ServerHeartbeatSucceededEvent is an event generated when the heartbeat succeeds.
 type ServerHeartbeatSucceededEvent struct {
+	// Deprecated: Use Duration instead.
 	DurationNanos int64
+	Duration      time.Duration
 	Reply         description.Server
 	ConnectionID  string // The address this heartbeat was sent to with a unique identifier
 	Awaited       bool   // If this heartbeat was awaitable
@@ -147,7 +186,9 @@ type ServerHeartbeatSucceededEvent struct {
 
 // ServerHeartbeatFailedEvent is an event generated when the heartbeat fails.
 type ServerHeartbeatFailedEvent struct {
+	// Deprecated: Use Duration instead.
 	DurationNanos int64
+	Duration      time.Duration
 	Failure       error
 	ConnectionID  string // The address this heartbeat was sent to with a unique identifier
 	Awaited       bool   // If this heartbeat was awaitable

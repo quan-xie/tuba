@@ -1,3 +1,9 @@
+// Copyright (C) MongoDB, Inc. 2022-present.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may
+// not use this file except in compliance with the License. You may obtain
+// a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
 //+build gssapi,windows
 
 #include "sspi_wrapper.h"
@@ -63,7 +69,7 @@ int sspi_client_init(
     if (username) {
         if (password) {
             SEC_WINNT_AUTH_IDENTITY auth_identity;
-            
+
         #ifdef _UNICODE
             auth_identity.Flags = SEC_WINNT_AUTH_IDENTITY_UNICODE;
         #else
@@ -180,7 +186,7 @@ int sspi_client_wrap_msg(
     PVOID input,
     ULONG input_length,
     PVOID* output,
-    ULONG* output_length 
+    ULONG* output_length
 )
 {
     SecPkgContext_Sizes sizes;

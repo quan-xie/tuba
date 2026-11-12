@@ -10,9 +10,19 @@ package options
 type InsertOneOptions struct {
 	// If true, writes executed as part of the operation will opt out of document-level validation on the server. This
 	// option is valid for MongoDB versions >= 3.2 and is ignored for previous server versions. The default value is
-	// false. See https://docs.mongodb.com/manual/core/schema-validation/ for more information about document
+	// false. See https://www.mongodb.com/docs/manual/core/schema-validation/ for more information about document
 	// validation.
 	BypassDocumentValidation *bool
+
+	// A string or document that will be included in server logs, profiling logs, and currentOp queries to help trace
+	// the operation.  The default value is nil, which means that no comment will be included in the logs.
+	Comment interface{}
+
+	// If true, the server accepts empty Timestamp as a literal rather than replacing it with the current time.
+	//
+	// Deprecated: This option is for internal use only and should not be set. It may be changed or removed in any
+	// release.
+	BypassEmptyTsReplacement *bool
 }
 
 // InsertOne creates a new InsertOneOptions instance.
@@ -26,8 +36,17 @@ func (ioo *InsertOneOptions) SetBypassDocumentValidation(b bool) *InsertOneOptio
 	return ioo
 }
 
+// SetComment sets the value for the Comment field.
+func (ioo *InsertOneOptions) SetComment(comment interface{}) *InsertOneOptions {
+	ioo.Comment = comment
+	return ioo
+}
+
 // MergeInsertOneOptions combines the given InsertOneOptions instances into a single InsertOneOptions in a last-one-wins
 // fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeInsertOneOptions(opts ...*InsertOneOptions) *InsertOneOptions {
 	ioOpts := InsertOne()
 	for _, ioo := range opts {
@@ -36,6 +55,12 @@ func MergeInsertOneOptions(opts ...*InsertOneOptions) *InsertOneOptions {
 		}
 		if ioo.BypassDocumentValidation != nil {
 			ioOpts.BypassDocumentValidation = ioo.BypassDocumentValidation
+		}
+		if ioo.Comment != nil {
+			ioOpts.Comment = ioo.Comment
+		}
+		if ioo.BypassEmptyTsReplacement != nil {
+			ioOpts.BypassEmptyTsReplacement = ioo.BypassEmptyTsReplacement
 		}
 	}
 
@@ -46,12 +71,22 @@ func MergeInsertOneOptions(opts ...*InsertOneOptions) *InsertOneOptions {
 type InsertManyOptions struct {
 	// If true, writes executed as part of the operation will opt out of document-level validation on the server. This
 	// option is valid for MongoDB versions >= 3.2 and is ignored for previous server versions. The default value is
-	// false. See https://docs.mongodb.com/manual/core/schema-validation/ for more information about document
+	// false. See https://www.mongodb.com/docs/manual/core/schema-validation/ for more information about document
 	// validation.
 	BypassDocumentValidation *bool
 
+	// A string or document that will be included in server logs, profiling logs, and currentOp queries to help trace
+	// the operation.  The default value is nil, which means that no comment will be included in the logs.
+	Comment interface{}
+
 	// If true, no writes will be executed after one fails. The default value is true.
 	Ordered *bool
+
+	// If true, the server accepts empty Timestamp as a literal rather than replacing it with the current time.
+	//
+	// Deprecated: This option is for internal use only and should not be set. It may be changed or removed in any
+	// release.
+	BypassEmptyTsReplacement *bool
 }
 
 // InsertMany creates a new InsertManyOptions instance.
@@ -67,6 +102,12 @@ func (imo *InsertManyOptions) SetBypassDocumentValidation(b bool) *InsertManyOpt
 	return imo
 }
 
+// SetComment sets the value for the Comment field.
+func (imo *InsertManyOptions) SetComment(comment interface{}) *InsertManyOptions {
+	imo.Comment = comment
+	return imo
+}
+
 // SetOrdered sets the value for the Ordered field.
 func (imo *InsertManyOptions) SetOrdered(b bool) *InsertManyOptions {
 	imo.Ordered = &b
@@ -75,6 +116,9 @@ func (imo *InsertManyOptions) SetOrdered(b bool) *InsertManyOptions {
 
 // MergeInsertManyOptions combines the given InsertManyOptions instances into a single InsertManyOptions in a last one
 // wins fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeInsertManyOptions(opts ...*InsertManyOptions) *InsertManyOptions {
 	imOpts := InsertMany()
 	for _, imo := range opts {
@@ -84,8 +128,14 @@ func MergeInsertManyOptions(opts ...*InsertManyOptions) *InsertManyOptions {
 		if imo.BypassDocumentValidation != nil {
 			imOpts.BypassDocumentValidation = imo.BypassDocumentValidation
 		}
+		if imo.Comment != nil {
+			imOpts.Comment = imo.Comment
+		}
 		if imo.Ordered != nil {
 			imOpts.Ordered = imo.Ordered
+		}
+		if imo.BypassEmptyTsReplacement != nil {
+			imOpts.BypassEmptyTsReplacement = imo.BypassEmptyTsReplacement
 		}
 	}
 

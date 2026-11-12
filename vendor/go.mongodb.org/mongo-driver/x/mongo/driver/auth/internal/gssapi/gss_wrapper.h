@@ -1,3 +1,9 @@
+// Copyright (C) MongoDB, Inc. 2022-present.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may
+// not use this file except in compliance with the License. You may obtain
+// a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
 //+build gssapi
 //+build linux darwin
 #ifndef GSS_WRAPPER_H
@@ -26,8 +32,8 @@ typedef struct {
 } gssapi_client_state;
 
 int gssapi_error_desc(
-    OM_uint32 maj_stat, 
-    OM_uint32 min_stat, 
+    OM_uint32 maj_stat,
+    OM_uint32 min_stat,
     char **desc
 );
 
@@ -56,7 +62,7 @@ int gssapi_client_wrap_msg(
     void* input,
     size_t input_length,
     void** output,
-    size_t* output_length 
+    size_t* output_length
 );
 
 int gssapi_client_destroy(

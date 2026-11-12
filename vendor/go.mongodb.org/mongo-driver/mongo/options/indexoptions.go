@@ -29,6 +29,10 @@ type CreateIndexesOptions struct {
 
 	// The maximum amount of time that the query can run on the server. The default value is nil, meaning that there
 	// is no time limit for query execution.
+	//
+	// NOTE(benjirewis): MaxTime will be deprecated in a future release. The more general Timeout option may be used
+	// in its place to control the amount of time that a single operation can run before returning an error. MaxTime
+	// is ignored if Timeout is set on the client.
 	MaxTime *time.Duration
 }
 
@@ -38,6 +42,10 @@ func CreateIndexes() *CreateIndexesOptions {
 }
 
 // SetMaxTime sets the value for the MaxTime field.
+//
+// NOTE(benjirewis): MaxTime will be deprecated in a future release. The more general Timeout
+// option may be used in its place to control the amount of time that a single operation can
+// run before returning an error. MaxTime is ignored if Timeout is set on the client.
 func (c *CreateIndexesOptions) SetMaxTime(d time.Duration) *CreateIndexesOptions {
 	c.MaxTime = &d
 	return c
@@ -69,6 +77,9 @@ func (c *CreateIndexesOptions) SetCommitQuorumVotingMembers() *CreateIndexesOpti
 
 // MergeCreateIndexesOptions combines the given CreateIndexesOptions into a single CreateIndexesOptions in a last one
 // wins fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeCreateIndexesOptions(opts ...*CreateIndexesOptions) *CreateIndexesOptions {
 	c := CreateIndexes()
 	for _, opt := range opts {
@@ -91,6 +102,10 @@ func MergeCreateIndexesOptions(opts ...*CreateIndexesOptions) *CreateIndexesOpti
 type DropIndexesOptions struct {
 	// The maximum amount of time that the query can run on the server. The default value is nil, meaning that there
 	// is no time limit for query execution.
+	//
+	// NOTE(benjirewis): MaxTime will be deprecated in a future release. The more general Timeout option may be used
+	// in its place to control the amount of time that a single operation can run before returning an error. MaxTime
+	// is ignored if Timeout is set on the client.
 	MaxTime *time.Duration
 }
 
@@ -100,6 +115,10 @@ func DropIndexes() *DropIndexesOptions {
 }
 
 // SetMaxTime sets the value for the MaxTime field.
+//
+// NOTE(benjirewis): MaxTime will be deprecated in a future release. The more general Timeout
+// option may be used in its place to control the amount of time that a single operation can
+// run before returning an error. MaxTime is ignored if Timeout is set on the client.
 func (d *DropIndexesOptions) SetMaxTime(duration time.Duration) *DropIndexesOptions {
 	d.MaxTime = &duration
 	return d
@@ -107,6 +126,9 @@ func (d *DropIndexesOptions) SetMaxTime(duration time.Duration) *DropIndexesOpti
 
 // MergeDropIndexesOptions combines the given DropIndexesOptions into a single DropIndexesOptions in a last-one-wins
 // fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeDropIndexesOptions(opts ...*DropIndexesOptions) *DropIndexesOptions {
 	c := DropIndexes()
 	for _, opt := range opts {
@@ -128,6 +150,10 @@ type ListIndexesOptions struct {
 
 	// The maximum amount of time that the query can run on the server. The default value is nil, meaning that there
 	// is no time limit for query execution.
+	//
+	// NOTE(benjirewis): MaxTime will be deprecated in a future release. The more general Timeout option may be used
+	// in its place to control the amount of time that a single operation can run before returning an error. MaxTime
+	// is ignored if Timeout is set on the client.
 	MaxTime *time.Duration
 }
 
@@ -143,6 +169,10 @@ func (l *ListIndexesOptions) SetBatchSize(i int32) *ListIndexesOptions {
 }
 
 // SetMaxTime sets the value for the MaxTime field.
+//
+// NOTE(benjirewis): MaxTime will be deprecated in a future release. The more general Timeout
+// option may be used in its place to control the amount of time that a single operation can
+// run before returning an error. MaxTime is ignored if Timeout is set on the client.
 func (l *ListIndexesOptions) SetMaxTime(d time.Duration) *ListIndexesOptions {
 	l.MaxTime = &d
 	return l
@@ -150,6 +180,9 @@ func (l *ListIndexesOptions) SetMaxTime(d time.Duration) *ListIndexesOptions {
 
 // MergeListIndexesOptions combines the given ListIndexesOptions instances into a single *ListIndexesOptions in a
 // last-one-wins fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeListIndexesOptions(opts ...*ListIndexesOptions) *ListIndexesOptions {
 	c := ListIndexes()
 	for _, opt := range opts {
@@ -210,7 +243,7 @@ type IndexOptions struct {
 	// of the DefaultLanguage option.
 	LanguageOverride *string
 
-	// The index version number for a text index. See https://docs.mongodb.com/manual/core/index-text/#text-versions for
+	// The index version number for a text index. See https://www.mongodb.com/docs/manual/core/index-text/#text-versions for
 	// information about different version numbers.
 	TextVersion *int32
 
@@ -220,7 +253,7 @@ type IndexOptions struct {
 	// that every field will have a weight of 1.
 	Weights interface{}
 
-	// The index version number for a 2D sphere index. See https://docs.mongodb.com/manual/core/2dsphere/#dsphere-v2 for
+	// The index version number for a 2D sphere index. See https://www.mongodb.com/docs/manual/core/2dsphere/#dsphere-v2 for
 	// information about different version numbers.
 	SphereVersion *int32
 
@@ -385,10 +418,16 @@ func (i *IndexOptions) SetHidden(hidden bool) *IndexOptions {
 }
 
 // MergeIndexOptions combines the given IndexOptions into a single IndexOptions in a last-one-wins fashion.
+//
+// Deprecated: Merging options structs will not be supported in Go Driver 2.0. Users should create a
+// single options struct instead.
 func MergeIndexOptions(opts ...*IndexOptions) *IndexOptions {
 	i := Index()
 
 	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
 		if opt.Background != nil {
 			i.Background = opt.Background
 		}

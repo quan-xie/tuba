@@ -47,9 +47,17 @@ type InsertManyResult struct {
 	InsertedIDs []interface{}
 }
 
+// TODO(GODRIVER-2367): Remove the BSON struct tags on DeleteResult.
+
 // DeleteResult is the result type returned by DeleteOne and DeleteMany operations.
 type DeleteResult struct {
 	DeletedCount int64 `bson:"n"` // The number of documents deleted.
+}
+
+// RewrapManyDataKeyResult is the result of the bulk write operation used to update the key vault collection with
+// rewrapped data keys.
+type RewrapManyDataKeyResult struct {
+	*BulkWriteResult
 }
 
 // ListDatabasesResult is a result of a ListDatabases operation.
@@ -79,7 +87,7 @@ func newListDatabasesResultFromOperation(res operation.ListDatabasesResult) List
 type DatabaseSpecification struct {
 	Name       string // The name of the database.
 	SizeOnDisk int64  // The total size of the database files on disk in bytes.
-	Empty      bool   // Specfies whether or not the database is empty.
+	Empty      bool   // Specifies whether or not the database is empty.
 }
 
 // UpdateResult is the result type returned from UpdateOne, UpdateMany, and ReplaceOne operations.
@@ -91,7 +99,11 @@ type UpdateResult struct {
 }
 
 // UnmarshalBSON implements the bson.Unmarshaler interface.
+//
+// Deprecated: Unmarshalling an UpdateResult directly from BSON is not supported and may produce
+// different results compared to running Update* operations directly.
 func (result *UpdateResult) UnmarshalBSON(b []byte) error {
+	// TODO(GODRIVER-2367): Remove the ability to unmarshal BSON directly to an UpdateResult.
 	elems, err := bson.Raw(b).Elements()
 	if err != nil {
 		return err
@@ -158,18 +170,39 @@ type IndexSpecification struct {
 
 	// The index version.
 	Version int32
+
+	// The length of time, in seconds, for documents to remain in the collection. The default value is 0, which means
+	// that documents will remain in the collection until they're explicitly deleted or the collection is dropped.
+	ExpireAfterSeconds *int32
+
+	// If true, the index will only reference documents that contain the fields specified in the index. The default is
+	// false.
+	Sparse *bool
+
+	// If true, the collection will not accept insertion or update of documents where the index key value matches an
+	// existing value in the index. The default is false.
+	Unique *bool
+
+	// The clustered index.
+	Clustered *bool
 }
 
 var _ bson.Unmarshaler = (*IndexSpecification)(nil)
 
 type unmarshalIndexSpecification struct {
-	Name         string   `bson:"name"`
-	Namespace    string   `bson:"ns"`
-	KeysDocument bson.Raw `bson:"key"`
-	Version      int32    `bson:"v"`
+	Name               string   `bson:"name"`
+	Namespace          string   `bson:"ns"`
+	KeysDocument       bson.Raw `bson:"key"`
+	Version            int32    `bson:"v"`
+	ExpireAfterSeconds *int32   `bson:"expireAfterSeconds"`
+	Sparse             *bool    `bson:"sparse"`
+	Unique             *bool    `bson:"unique"`
+	Clustered          *bool    `bson:"clustered"`
 }
 
 // UnmarshalBSON implements the bson.Unmarshaler interface.
+//
+// Deprecated: Unmarshaling an IndexSpecification from BSON will not be supported in Go Driver 2.0.
 func (i *IndexSpecification) UnmarshalBSON(data []byte) error {
 	var temp unmarshalIndexSpecification
 	if err := bson.Unmarshal(data, &temp); err != nil {
@@ -180,6 +213,10 @@ func (i *IndexSpecification) UnmarshalBSON(data []byte) error {
 	i.Namespace = temp.Namespace
 	i.KeysDocument = temp.KeysDocument
 	i.Version = temp.Version
+	i.ExpireAfterSeconds = temp.ExpireAfterSeconds
+	i.Sparse = temp.Sparse
+	i.Unique = temp.Unique
+	i.Clustered = temp.Clustered
 	return nil
 }
 
@@ -223,6 +260,9 @@ type unmarshalCollectionSpecification struct {
 }
 
 // UnmarshalBSON implements the bson.Unmarshaler interface.
+//
+// Deprecated: Unmarshaling a CollectionSpecification from BSON will not be supported in Go Driver
+// 2.0.
 func (cs *CollectionSpecification) UnmarshalBSON(data []byte) error {
 	var temp unmarshalCollectionSpecification
 	if err := bson.Unmarshal(data, &temp); err != nil {
